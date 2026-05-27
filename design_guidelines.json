@@ -1,0 +1,142 @@
+{
+  "project_name": "High-Stakes Esports & Gaming SaaS Platform",
+  "theme": "dark",
+  "archetype": "Archetype 2: The Performance Pro",
+  "emotional_tone": "High-stakes, professional, secure, tactical, adrenaline-pumping",
+  "typography": {
+    "strategy": "The Swiss Brutalist (Tech / Performance) - Radical weight contrast",
+    "fonts": {
+      "heading": "Chivo",
+      "heading_weights": [700, 900],
+      "heading_backup": "Bebas Neue",
+      "body": "IBM Plex Sans",
+      "body_weights": [400, 500, 600],
+      "body_backup": "Inter"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter leading-none font-black",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight leading-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-bold",
+      "h4": "text-lg sm:text-xl font-bold",
+      "body": "text-sm sm:text-base leading-relaxed tracking-wide",
+      "overline_labels": "text-xs font-bold uppercase tracking-[0.2em] text-secondary"
+    },
+    "rules": [
+      "No generic sans-serif for headings (Banned: Inter, Roboto).",
+      "Headlines MUST use tight letter spacing (tracking-tighter).",
+      "Overlines MUST be Uppercase + Tiny + Wide Spacing.",
+      "Never use text-7xl or above for heroes."
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#0A0A0A",
+      "surface": "#141414",
+      "surface_elevated": "#1A1A1A"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A3A3A3",
+      "muted": "#525252"
+    },
+    "border": {
+      "default": "#262626",
+      "highlight": "#3F3F3F"
+    },
+    "brand": {
+      "primary": "#FF3B30",
+      "primary_hover": "#D62F26",
+      "secondary": "#007AFF",
+      "secondary_hover": "#0062CC"
+    },
+    "status": {
+      "success": "#22C55E",
+      "warning": "#F59E0B",
+      "danger": "#EF4444"
+    },
+    "rules": [
+      "Use Deep Obsidian (#0A0A0A) as primary anchor.",
+      "Pair with Pure White for data clarity and Electric Blaze (#FF3B30) for kinetic triggers.",
+      "Replace soft shadows with 1px solid strokes or 2px 'Inner Glow' highlights.",
+      "Tinted Grey Rule: Never use pure #000000, always tint lightly with blue for obsidian feel."
+    ]
+  },
+  "spacing_and_layout": {
+    "strategy": "MODE B: The Control Room Grid (Density, Data Correlation, Scanability)",
+    "container_padding": "p-6 md:p-8",
+    "base_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+    "gap": "gap-4 md:gap-6",
+    "spans": {
+      "summary_widget": "col-span-1",
+      "primary_data_chart": "col-span-2 row-span-2 lg:col-span-3",
+      "feed_list": "col-span-1 row-span-2"
+    },
+    "surface_strategy": "Grid Borders (Technical Look) - Expose the skeleton. Container uses border-collapse style layout. Items have border-r border-b border-border/40.",
+    "rules": [
+      "Generous padding inside bordered containers to prevent text collision.",
+      "No rounded corners for a sharp, tactical feel. Max border-radius: rounded-sm (2px) for inner inputs only.",
+      "Every pixel utilized. Use h-full on children to stretch and match neighbors. No jagged bottoms."
+    ]
+  },
+  "components": {
+    "headers_and_nav": {
+      "style": "Solid Background with a hard bottom border (border-b border-[#262626]). bg-[#0A0A0A].",
+      "rules": "Navigation links MUST be visible on desktop. No transparent headers over hero sections without a blur."
+    },
+    "buttons": {
+      "primary": "bg-[#FF3B30] text-white font-bold rounded-none hover:bg-[#D62F26] transition-colors",
+      "secondary": "bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] rounded-none transition-all",
+      "rules": "ONLY use primary brand color for CTAs like submit form, place stake, join game."
+    },
+    "cards_and_widgets": {
+      "style": "Flat background (#141414), 1px subtle border (#262626), no shadow. Sharp corners (rounded-none).",
+      "hover": "Slight border highlight (border-[#3F3F3F]), NO y-axis movement for dense dashboard items."
+    },
+    "forms_and_inputs": {
+      "style": "bg-[#0A0A0A] border border-[#262626] text-white focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30] rounded-none",
+      "labels": "text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]"
+    },
+    "shadcn_customization": [
+      "Use pure HTML+Tailwind for Marketing layout sections if any.",
+      "HEAVILY CUSTOMIZE Shadcn components for forms, dialogs, charts.",
+      "Override default Shadcn rounding to rounded-none.",
+      "Use Shadcn charts/Recharts for 'Game History' and 'Player Leaderboard' win rates."
+    ]
+  },
+  "interactions": {
+    "hover_states": "Always explicitly set text color on hover. Example: hover:bg-[#1A1A1A] hover:text-white.",
+    "focus_states": "Focus states MUST have HIGHER contrast. focus:ring-2 focus:ring-[#FF3B30].",
+    "animations": "Minimalist (Tactical). Use micro-interactions for feedback. Avoid bouncy/elastic animations. Use crisp ease-out transitions (150ms)."
+  },
+  "media_and_assets": {
+    "icon_library": "@phosphor-icons/react (Duotone or Regular weight for sharp dashboard clarity)",
+    "image_urls": {
+      "hero_background": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/768a956b-e80c-4a81-9522-49f6a7cfc20a/images/ec4ef5cd4d55313a4b25fa59cd00d22ed44ff07dae67626b1f5d12ef7958d75c.png",
+        "description": "Tactical command center interface in a dark room. Deep obsidian background with sharp red accent lines. Use with an overlay bg-black/40 if placing text on top.",
+        "placement": "Marketing landing page hero background or Tournament Lobby Header."
+      },
+      "active_tournament_promo": {
+        "url": "https://images.pexels.com/photos/9072293/pexels-photo-9072293.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Professional gamers competing in a team tournament.",
+        "placement": "Image for 'Featured Tournament' or 'Browse Active Games' empty state."
+      },
+      "hardware_action": {
+        "url": "https://images.pexels.com/photos/34592708/pexels-photo-34592708.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Close-up of glowing gaming controllers on a dark surface.",
+        "placement": "Banner image for 'Join Game with Stake' or 'Wallet/Balance' deposit section."
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "This app relies on 'Archetype 2: The Performance Pro'. Strictly enforce a 'Tactical Minimalism' look. Dark mode only.",
+    "Install `@phosphor-icons/react` for icons.",
+    "DO NOT use generic Inter for headings. Use Chivo (or Bebas Neue).",
+    "Implement the 'Control Room' grid layout for the dashboard. Use border-collapse and exposed grid lines.",
+    "Data-testids MUST be added to all interactive elements for robust automated testing (e.g., data-testid='create-tournament-button').",
+    "Use strictly Shadcn for complex components (Dialogs, Dropdowns) but customize classes heavily to remove the default Vercel-look.",
+    "Do NOT use 'rounded-md' or soft shadows. Everything should be sharp (rounded-none or max rounded-sm) with 1px borders.",
+    "Display critical live KPIs at the top (Active matches, Live Players, Total Stakes) in the North Star metric pattern.",
+    "Do NOT use placeholder text for any images. Use the provided media_and_assets URLs."
+  ]
+}
