@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="12" skipped="0" tests="17" time="2.215" timestamp="2026-05-27T20:00:25.505478+00:00" hostname="agent-env-0c694f3e-7148-4fa3-a504-ea4527e431b3"><testcase classname="backend.tests.backend_test" name="test_register_and_me" time="0.977"><failure message="assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">backend/tests/backend_test.py:24: in test_register_and_me
+    r = s1.get(f"{API}/auth/me"); assert r.status_code == 200
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="backend.tests.backend_test" name="test_login_invalid" time="0.149" /><testcase classname="backend.tests.backend_test" name="test_login_admin" time="0.343" /><testcase classname="backend.tests.backend_test" name="test_create_game_and_list" time="0.051"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">backend/tests/backend_test.py:38: in test_create_game_and_list
+    assert r.status_code == 200, r.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="backend.tests.backend_test" name="test_create_tournament_insufficient" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'game_id'">backend/tests/backend_test.py:45: in test_create_tournament_insufficient
+    r = s1.post(f"{API}/tournaments", json={"game_id": pytest.game_id, "stake_amount": 100, "max_players": 4, "start_time": "2026-12-31T10:00:00Z"})
+                                                       ^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'game_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_seed_wallet_and_create_tournament" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'game_id'">backend/tests/backend_test.py:50: in test_seed_wallet_and_create_tournament
+    r = s1.post(f"{API}/tournaments", json={"game_id": pytest.game_id, "stake_amount": 0, "max_players": 4, "start_time": "2026-12-31T10:00:00Z"})
+                                                       ^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'game_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_list_tournaments" time="0.048"><failure message="assert False&#10; +  where False = any(&lt;generator object test_list_tournaments.&lt;locals&gt;.&lt;genexpr&gt; at 0xf94e524024d0&gt;)">backend/tests/backend_test.py:56: in test_list_tournaments
+    assert any(t["id"] == pytest.tournament_id for t in r.json())
+E   assert False
+E    +  where False = any(&lt;generator object test_list_tournaments.&lt;locals&gt;.&lt;genexpr&gt; at 0xf94e524024d0&gt;)</failure></testcase><testcase classname="backend.tests.backend_test" name="test_join_tournament" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'tournament_id'">backend/tests/backend_test.py:59: in test_join_tournament
+    r = s2.post(f"{API}/tournaments/{pytest.tournament_id}/join")
+                                     ^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'tournament_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_tournament_details" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'tournament_id'">backend/tests/backend_test.py:63: in test_tournament_details
+    r = s1.get(f"{API}/tournaments/{pytest.tournament_id}")
+                                    ^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'tournament_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_chat" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'tournament_id'">backend/tests/backend_test.py:68: in test_chat
+    r = s1.post(f"{API}/chat", json={"tournament_id": pytest.tournament_id, "message": "hi"})
+                                                      ^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'tournament_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_complete_tournament" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'tournament_id'">backend/tests/backend_test.py:76: in test_complete_tournament
+    r = s1.post(f"{API}/tournaments/{pytest.tournament_id}/complete", params={"winner_user_id": users["u2"]["id"]})
+                                     ^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'tournament_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_only_creator_can_complete" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'game_id'">backend/tests/backend_test.py:81: in test_only_creator_can_complete
+    r = s1.post(f"{API}/tournaments", json={"game_id": pytest.game_id, "stake_amount": 0, "max_players": 4, "start_time": "2026-12-31T10:00:00Z"})
+                                                       ^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'game_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_leaderboard" time="0.142" /><testcase classname="backend.tests.backend_test" name="test_wallet_deposit_stripe" time="0.053"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">backend/tests/backend_test.py:92: in test_wallet_deposit_stripe
+    assert r.status_code == 200, r.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="backend.tests.backend_test" name="test_wallet_status_pending" time="0.000"><failure message="AttributeError: module 'pytest' has no attribute 'session_id'">backend/tests/backend_test.py:99: in test_wallet_status_pending
+    r = s1.get(f"{API}/wallet/deposit/status/{pytest.session_id}")
+                                              ^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'pytest' has no attribute 'session_id'</failure></testcase><testcase classname="backend.tests.backend_test" name="test_wallet_deposit_invalid" time="0.047" /><testcase classname="backend.tests.backend_test" name="test_unauth_protected" time="0.141" /></testsuite></testsuites>

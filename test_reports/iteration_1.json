@@ -1,0 +1,51 @@
+{
+  "summary": "Initial MVP testing for Esports Bet platform. Identified CRITICAL backend bug: get_current_user() sets user['_id'] but all downstream auth-protected endpoints reference user['id'], causing 500 errors on /auth/me, POST /games, all /tournaments endpoints, /chat, /wallet/deposit, /wallet/transactions. Public endpoints (register, login, list games, list tournaments, leaderboard) and login brute-force work correctly. Frontend landing/register pages load fine.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/auth/me + ALL authenticated endpoints", "issue": "KeyError: 'id'. get_current_user() (server.py L65-70) does user['_id'] = str(user['_id']) but endpoints use user['id']. Causes 500 across /auth/me, POST /games, POST/GET-detail/join/complete /tournaments, POST /chat, POST /wallet/deposit, GET /wallet/transactions. Fix: add user['id'] = str(user['_id']) before returning, or rename consistently.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/tournaments/{id}/complete", "issue": "winner_user_id is a query param (not body) - inconsistent API design; should be Pydantic model"},
+      {"endpoint": "POST /api/tournaments", "issue": "Allows stake_amount=0 which bypasses escrow logic - should validate amount > 0"},
+      {"endpoint": "POST /api/tournaments/{id}/complete", "issue": "No validation that winner_user_id is actually a participant in the tournament"},
+      {"endpoint": "POST /api/chat", "issue": "No check that sender is a participant of the tournament - any authenticated user can post to any tournament chat"},
+      {"endpoint": "Cookies", "issue": "secure=False on production HTTPS - cookies should be Secure=True (and samesite='none' for cross-site if needed)"},
+      {"endpoint": "/api/auth/forgot-password", "issue": "Reset link only printed to console (no email integration) - acceptable for MVP but flag for prod"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Register/Login forms", "issue": "Missing data-testid attributes on inputs and submit buttons - hampers automated testing", "selector": "input, button", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Any authenticated flow (Dashboard, Wallet, BrowseGames, CreateTournament, etc.)", "issue": "All blocked by backend critical bug above - /auth/me returns 500, so authenticated UI cannot bootstrap user state", "affected_selectors": ["all auth-gated screens"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "URGENT: Fix get_current_user() in /app/backend/server.py to include user['id'] = str(user['_id']) (or refactor consistently). This single fix likely unblocks ~90% of failing endpoints.",
+    "Add data-testid attributes to login/register/dashboard interactive elements",
+    "Validate stake_amount > 0 in POST /api/tournaments",
+    "Validate winner_user_id is a participant in /tournaments/{id}/complete",
+    "Restrict chat posting to tournament participants only",
+    "Change complete-tournament winner_user_id from query param to request body",
+    "Set Secure=True on cookies for HTTPS production environment"
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~700 lines mixing auth/games/tournaments/chat/wallet - split into routers/modules",
+    "Repeated ObjectId(user['id']) + user lookups in tournaments/chat - extract helpers",
+    "No async error handling for Stripe API failures - bare 500s leak internals",
+    "Tournament creator auto-deducted stake but on failure to insert participants, partial state remains (no transaction)",
+    "No rate limiting on /wallet/deposit - users could spam Stripe sessions",
+    "FRONTEND_URL has fallback default 'http://localhost:3000' in CORS - protected vars should fail fast"
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "29% (5/17 passed - all public/unauth endpoints)", "frontend": "not fully tested - blocked by backend auth bug"},
+  "test_credentials": "admin@esportsbet.com / admin123 (login works, but /auth/me fails after due to critical bug)",
+  "seed_data_creation": "Created TEST_ prefixed users and a TEST_FIFA24 game attempt (failed due to bug)",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "After main agent fixes get_current_user user['id'] bug, re-run /app/backend/tests/backend_test.py - most failures should resolve. Then proceed with frontend E2E: register -> dashboard -> create game -> create tournament -> join -> chat -> complete -> wallet deposit flow. Stripe deposit can be partially tested up to checkout URL generation; actual payment polling requires real Stripe interaction.",
+  "rca of the issue": "RCA: In server.py line 65-70, get_current_user() loads user from MongoDB then mutates _id field (user['_id'] = str(user['_id'])) but never sets user['id']. However, all 9 protected endpoints reference user['id']. Reproduction: register a user (sets cookie) -> GET /api/auth/me -> 500 KeyError: 'id'. Mitigation: add `user['id'] = str(user['_id'])` after line 68 in get_current_user(), keeping _id stringified for backward compat or removing it."
+}
