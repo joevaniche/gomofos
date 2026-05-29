@@ -65,6 +65,7 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        user["id"] = str(user["_id"])
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
         return user
@@ -341,6 +342,9 @@ async def get_games():
 # Tournament endpoints
 @api_router.post("/tournaments", response_model=TournamentResponse)
 async def create_tournament(tournament_data: TournamentCreate, user: dict = Depends(get_current_user)):
+    if tournament_data.stake_amount <= 0:
+        raise HTTPException(status_code=400, detail="Stake amount must be greater than 0")
+    
     game = await db.games.find_one({"_id": ObjectId(tournament_data.game_id)})
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -467,6 +471,11 @@ async def complete_tournament(tournament_id: str, winner_user_id: str, user: dic
     if tournament["status"] != "open":
         raise HTTPException(status_code=400, detail="Tournament already completed")
     
+    # Validate winner is a participant
+    winner_participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": winner_user_id})
+    if not winner_participant:
+        raise HTTPException(status_code=400, detail="Winner must be a tournament participant")
+    
     # Calculate total prize pool
     total_pool = tournament["stake_amount"] * tournament["current_players"]
     platform_fee = total_pool * 0.05  # 5% platform fee
@@ -524,6 +533,11 @@ async def get_tournament_details(tournament_id: str):
 # Chat endpoints
 @api_router.post("/chat", response_model=ChatMessageResponse)
 async def send_message(msg_data: ChatMessageCreate, user: dict = Depends(get_current_user)):
+    # Validate user is a participant
+    participant = await db.tournament_participants.find_one({"tournament_id": msg_data.tournament_id, "user_id": user["id"]})
+    if not participant:
+        raise HTTPException(status_code=403, detail="Only tournament participants can chat")
+    
     msg_doc = {
         "tournament_id": msg_data.tournament_id,
         "user_id": user["id"],
