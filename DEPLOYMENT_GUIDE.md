@@ -1,38 +1,83 @@
-# Ubuntu Server Deployment Guide - levelsquared.com.au
+# Ubuntu Server Deployment Guide - gomofos.com
 
 Complete deployment guide for the Esports Bet platform on Ubuntu Server (22.04 / 24.04 LTS).
 
-## Architecture
-```
-Internet → Nginx (80/443) → ├── Frontend (static build, served by Nginx)
-                            └── Backend (FastAPI on port 8001) → MongoDB (port 27017)
-```
+**Server IP:** `192.168.0.124` (private LAN address)
+**Domain:** `gomofos.com`
 
 ---
 
-## PART 1: DNS Setup (Do this FIRST)
+## ⚠️ IMPORTANT: Private IP Limitation
 
-Before touching the server, point your domain to your server's IP address.
+`192.168.0.124` is a **private LAN address** — it is only reachable from devices on the same local network (same WiFi/router). This means by default:
 
-1. Log in to your domain registrar (where you bought `levelsquared.com.au`)
-2. Add these DNS A records:
+- ❌ People on the public internet **cannot** reach your server
+- ❌ Public DNS for `gomofos.com` cannot point directly to `192.168.0.124`
+- ❌ Let's Encrypt SSL certificates won't auto-issue without public access
+
+### You have 3 deployment paths — pick one:
+
+| Path | Use Case | Public Access | SSL |
+|---|---|---|---|
+| **A. LAN-Only** | Internal/testing/dev | No (LAN devices only) | Self-signed cert |
+| **B. Port Forwarding** | Production from home/office | Yes (via your public IP) | Let's Encrypt ✓ |
+| **C. Cloudflare Tunnel** | Production, no router config | Yes (via Cloudflare) | Let's Encrypt ✓ |
+
+**Recommendation:** If this is for real users → **Path C (Cloudflare Tunnel)**. It's free, secure, and requires no router/firewall changes. If you only need LAN access for now → **Path A**.
+
+The guide below works for all three paths. The differences are noted in **PART 1 (DNS)** and **PART 8 (SSL)**.
+
+---
+
+## PART 1: DNS Setup (Path-specific)
+
+### Path A — LAN-Only (no public DNS)
+Edit the `hosts` file on each device that will access the site:
+
+**On Linux/Mac:**
+```bash
+sudo nano /etc/hosts
+# Add this line:
+192.168.0.124  gomofos.com www.gomofos.com
+```
+
+**On Windows:**
+- Open Notepad as Administrator
+- Open `C:\Windows\System32\drivers\etc\hosts`
+- Add: `192.168.0.124  gomofos.com www.gomofos.com`
+
+### Path B — Port Forwarding (public access via your router)
+1. Find your **public IP**: `curl ifconfig.me` (from any device on your network)
+2. Log in to your router admin panel (usually `http://192.168.0.1`)
+3. Set up port forwarding:
+   - External port `80` → `192.168.0.124:80`
+   - External port `443` → `192.168.0.124:443`
+4. At your DNS registrar, add A records:
    ```
-   @       A    YOUR_SERVER_IP    (e.g., 203.0.113.45)
-   www     A    YOUR_SERVER_IP
+   @       A    YOUR_PUBLIC_IP
+   www     A    YOUR_PUBLIC_IP
    ```
-3. Wait 5-30 mins for DNS to propagate. Verify with:
-   ```bash
-   dig levelsquared.com.au +short
-   # Should return your server's IP
-   ```
+5. **Optional but recommended:** request a static public IP from your ISP, or use a Dynamic DNS service if your public IP changes.
+
+### Path C — Cloudflare Tunnel (no port forwarding needed)
+1. Sign up at https://cloudflare.com (free)
+2. Add `gomofos.com` to Cloudflare — update your domain's nameservers as instructed
+3. We'll set up the tunnel in **PART 8** below. For now, just complete the Cloudflare account setup.
+
+### Verify DNS (Paths B & C only)
+```bash
+dig gomofos.com +short
+# Path B: should return your public IP
+# Path C: returns Cloudflare's IPs (this is correct)
+```
 
 ---
 
 ## PART 2: Initial Server Setup
 
-SSH into your Ubuntu server:
+SSH into your Ubuntu server (from a device on the same LAN):
 ```bash
-ssh your_username@YOUR_SERVER_IP
+ssh your_username@192.168.0.124
 ```
 
 ### Update the system
@@ -42,7 +87,7 @@ sudo apt update && sudo apt upgrade -y
 
 ### Install required packages
 ```bash
-sudo apt install -y python3.11 python3.11-venv python3-pip nodejs npm nginx git curl ufw
+sudo apt install -y python3.11 python3.11-venv python3-pip nodejs npm nginx git curl ufw unzip
 ```
 
 ### Install Yarn (we use yarn, NOT npm)
@@ -76,36 +121,36 @@ sudo ufw status
 You have two options. Choose one.
 
 ### Option A — Push from Emergent to GitHub, then clone (recommended)
-1. In the Emergent app interface, push your code to GitHub (use the GitHub button in the chat)
+1. In the Emergent app interface, push your code to GitHub (use the GitHub button)
 2. On your server:
    ```bash
-   cd /var/www
-   sudo mkdir -p esportsbet && sudo chown -R $USER:$USER esportsbet
-   cd esportsbet
-   git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git .
+   sudo mkdir -p /var/www && cd /var/www
+   sudo git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git gomofos
+   sudo chown -R $USER:$USER /var/www/gomofos
+   cd gomofos
    ```
 
 ### Option B — Download as ZIP and upload via SCP
-1. In Emergent, click "Download Code"
-2. From your local machine:
+1. In Emergent, click "Download Code" to get the project zip
+2. From your local machine (same LAN as the server):
    ```bash
-   scp esportsbet.zip your_username@YOUR_SERVER_IP:/tmp/
+   scp gomofos.zip your_username@192.168.0.124:/tmp/
    ```
 3. On the server:
    ```bash
-   sudo mkdir -p /var/www/esportsbet && sudo chown -R $USER:$USER /var/www/esportsbet
-   cd /var/www/esportsbet
-   unzip /tmp/esportsbet.zip
+   sudo mkdir -p /var/www/gomofos && sudo chown -R $USER:$USER /var/www/gomofos
+   cd /var/www/gomofos
+   unzip /tmp/gomofos.zip
    ```
 
-After either option, you should have `/var/www/esportsbet/backend/` and `/var/www/esportsbet/frontend/`.
+After either option, you should have `/var/www/gomofos/backend/` and `/var/www/gomofos/frontend/`.
 
 ---
 
 ## PART 4: Backend Setup
 
 ```bash
-cd /var/www/esportsbet/backend
+cd /var/www/gomofos/backend
 
 # Create virtual environment
 python3.11 -m venv venv
@@ -125,34 +170,47 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 ### Create production `.env` for backend
 ```bash
-nano /var/www/esportsbet/backend/.env
+nano /var/www/gomofos/backend/.env
 ```
 
-Paste this (replace placeholders):
+**For Path A (LAN-only, HTTP):**
 ```
 MONGO_URL="mongodb://localhost:27017"
-DB_NAME="esportsbet_prod"
-CORS_ORIGINS="https://levelsquared.com.au,https://www.levelsquared.com.au"
+DB_NAME="gomofos_prod"
+CORS_ORIGINS="http://gomofos.com,http://www.gomofos.com,http://192.168.0.124"
+STRIPE_API_KEY="sk_test_emergent"
+JWT_SECRET="PASTE_THE_GENERATED_HEX_FROM_ABOVE"
+ADMIN_EMAIL="admin@gomofos.com"
+ADMIN_PASSWORD="CHANGE_THIS_TO_A_STRONG_PASSWORD"
+FRONTEND_URL="http://gomofos.com"
+```
+
+**For Path B or C (public, HTTPS):**
+```
+MONGO_URL="mongodb://localhost:27017"
+DB_NAME="gomofos_prod"
+CORS_ORIGINS="https://gomofos.com,https://www.gomofos.com"
 STRIPE_API_KEY="sk_live_YOUR_PRODUCTION_STRIPE_KEY"
 JWT_SECRET="PASTE_THE_GENERATED_HEX_FROM_ABOVE"
-ADMIN_EMAIL="admin@levelsquared.com.au"
+ADMIN_EMAIL="admin@gomofos.com"
 ADMIN_PASSWORD="CHANGE_THIS_TO_A_STRONG_PASSWORD"
-FRONTEND_URL="https://levelsquared.com.au"
+FRONTEND_URL="https://gomofos.com"
 ```
 
 Save (Ctrl+O, Enter, Ctrl+X).
 
-### Update `server.py` cookie security for HTTPS
-The current dev code has `secure=False` for cookies. For production HTTPS, edit `/var/www/esportsbet/backend/server.py` and find both `set_cookie` calls — change `secure=False` to `secure=True` and `samesite="lax"` to `samesite="strict"` for better security.
-
+### Update `server.py` cookie security
+**For Paths B & C (HTTPS):**
 ```bash
-sed -i 's/secure=False/secure=True/g' /var/www/esportsbet/backend/server.py
-sed -i 's/samesite="lax"/samesite="strict"/g' /var/www/esportsbet/backend/server.py
+sed -i 's/secure=False/secure=True/g' /var/www/gomofos/backend/server.py
+sed -i 's/samesite="lax"/samesite="strict"/g' /var/www/gomofos/backend/server.py
 ```
+
+**For Path A (HTTP):** leave defaults — `secure=True` would block cookies on plain HTTP.
 
 ### Test backend runs
 ```bash
-cd /var/www/esportsbet/backend
+cd /var/www/gomofos/backend
 source venv/bin/activate
 uvicorn server:app --host 0.0.0.0 --port 8001
 # You should see "Application startup complete". Hit Ctrl+C to stop.
@@ -163,17 +221,23 @@ uvicorn server:app --host 0.0.0.0 --port 8001
 ## PART 5: Frontend Setup
 
 ```bash
-cd /var/www/esportsbet/frontend
+cd /var/www/gomofos/frontend
 ```
 
 ### Update frontend `.env` for production
 ```bash
-nano /var/www/esportsbet/frontend/.env
+nano /var/www/gomofos/frontend/.env
 ```
 
-Replace contents with:
+**For Path A (HTTP):**
 ```
-REACT_APP_BACKEND_URL=https://levelsquared.com.au
+REACT_APP_BACKEND_URL=http://gomofos.com
+WDS_SOCKET_PORT=80
+```
+
+**For Path B or C (HTTPS):**
+```
+REACT_APP_BACKEND_URL=https://gomofos.com
 WDS_SOCKET_PORT=443
 ```
 
@@ -193,22 +257,22 @@ This creates an optimized `build/` folder containing static files Nginx will ser
 
 Create the service file:
 ```bash
-sudo nano /etc/systemd/system/esportsbet-backend.service
+sudo nano /etc/systemd/system/gomofos-backend.service
 ```
 
 Paste:
 ```ini
 [Unit]
-Description=Esports Bet Backend (FastAPI)
+Description=Gomofos Backend (FastAPI)
 After=network.target mongod.service
 
 [Service]
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/esportsbet/backend
-Environment="PATH=/var/www/esportsbet/backend/venv/bin"
-ExecStart=/var/www/esportsbet/backend/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001 --workers 2
+WorkingDirectory=/var/www/gomofos/backend
+Environment="PATH=/var/www/gomofos/backend/venv/bin"
+ExecStart=/var/www/gomofos/backend/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001 --workers 2
 Restart=always
 RestartSec=5
 
@@ -218,16 +282,16 @@ WantedBy=multi-user.target
 
 Set ownership and enable the service:
 ```bash
-sudo chown -R www-data:www-data /var/www/esportsbet
+sudo chown -R www-data:www-data /var/www/gomofos
 sudo systemctl daemon-reload
-sudo systemctl enable esportsbet-backend
-sudo systemctl start esportsbet-backend
-sudo systemctl status esportsbet-backend   # verify running
+sudo systemctl enable gomofos-backend
+sudo systemctl start gomofos-backend
+sudo systemctl status gomofos-backend   # verify running
 ```
 
 If something is wrong, check logs:
 ```bash
-sudo journalctl -u esportsbet-backend -f
+sudo journalctl -u gomofos-backend -f
 ```
 
 ---
@@ -236,18 +300,18 @@ sudo journalctl -u esportsbet-backend -f
 
 Remove default Nginx site and create our config:
 ```bash
-sudo rm /etc/nginx/sites-enabled/default
-sudo nano /etc/nginx/sites-available/levelsquared
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nano /etc/nginx/sites-available/gomofos
 ```
 
 Paste this config:
 ```nginx
 server {
     listen 80;
-    server_name levelsquared.com.au www.levelsquared.com.au;
+    server_name gomofos.com www.gomofos.com 192.168.0.124;
 
     # Frontend - serve static React build
-    root /var/www/esportsbet/frontend/build;
+    root /var/www/gomofos/frontend/build;
     index index.html;
 
     # API requests → Backend
@@ -264,14 +328,6 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # Stripe webhook (no SSL strip)
-    location /api/webhook/stripe {
-        proxy_pass http://127.0.0.1:8001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
     # React Router - serve index.html for all unmatched routes
     location / {
         try_files $uri $uri/ /index.html;
@@ -283,88 +339,185 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # Increase max upload size
     client_max_body_size 10M;
 }
 ```
 
 Save, enable, test, reload:
 ```bash
-sudo ln -s /etc/nginx/sites-available/levelsquared /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/gomofos /etc/nginx/sites-enabled/
 sudo nginx -t        # must say: syntax is ok / test is successful
 sudo systemctl reload nginx
 ```
 
-Visit `http://levelsquared.com.au` — you should see your site (without HTTPS yet).
+### Verify (varies by path):
+- **Path A:** From any device on the same LAN with the hosts file edited, visit `http://gomofos.com`
+- **Path B:** From outside your network, visit `http://gomofos.com` (port forwarding active)
+- **Path C:** Continue to Part 8
 
 ---
 
-## PART 8: SSL Certificate (HTTPS) with Let's Encrypt
+## PART 8: SSL Certificate (Path-specific)
+
+### Path A — Self-signed certificate (LAN-only)
+Browsers will show a "not secure" warning that users must dismiss. Acceptable for internal/dev.
 
 ```bash
+sudo mkdir -p /etc/nginx/ssl
+sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/gomofos.key \
+  -out /etc/nginx/ssl/gomofos.crt \
+  -subj "/CN=gomofos.com"
+```
+
+Then edit `/etc/nginx/sites-available/gomofos` and add a second server block:
+```nginx
+server {
+    listen 443 ssl;
+    server_name gomofos.com www.gomofos.com 192.168.0.124;
+
+    ssl_certificate /etc/nginx/ssl/gomofos.crt;
+    ssl_certificate_key /etc/nginx/ssl/gomofos.key;
+
+    root /var/www/gomofos/frontend/build;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    client_max_body_size 10M;
+}
+```
+
+Reload: `sudo nginx -t && sudo systemctl reload nginx`
+
+### Path B — Let's Encrypt via certbot (port forwarding active)
+```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d levelsquared.com.au -d www.levelsquared.com.au
+sudo certbot --nginx -d gomofos.com -d www.gomofos.com
 ```
 
 When prompted:
-- Enter your email (for renewal notices)
+- Enter your email
 - Agree to terms (A)
 - Choose option `2` to redirect HTTP → HTTPS
 
-Certbot auto-edits your Nginx config and sets up auto-renewal. Verify auto-renewal works:
+Verify auto-renewal:
 ```bash
 sudo certbot renew --dry-run
 ```
 
-Now visit `https://levelsquared.com.au` — you should see your site with a padlock 🔒.
+### Path C — Cloudflare Tunnel (recommended for production)
+This routes traffic through Cloudflare without needing port forwarding. SSL is handled by Cloudflare.
+
+```bash
+# Install cloudflared
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb
+sudo dpkg -i /tmp/cloudflared.deb
+
+# Login (opens a URL — copy/paste to a browser, select gomofos.com)
+cloudflared tunnel login
+
+# Create tunnel
+cloudflared tunnel create gomofos
+
+# Configure tunnel
+mkdir -p ~/.cloudflared
+nano ~/.cloudflared/config.yml
+```
+
+Paste:
+```yaml
+tunnel: gomofos
+credentials-file: /root/.cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  - hostname: gomofos.com
+    service: http://localhost:80
+  - hostname: www.gomofos.com
+    service: http://localhost:80
+  - service: http_status:404
+```
+
+Replace `<TUNNEL-ID>` with the ID `cloudflared tunnel create` printed.
+
+```bash
+# Route DNS
+cloudflared tunnel route dns gomofos gomofos.com
+cloudflared tunnel route dns gomofos www.gomofos.com
+
+# Install as service
+sudo cloudflared service install
+sudo systemctl start cloudflared
+sudo systemctl enable cloudflared
+sudo systemctl status cloudflared
+```
+
+In Cloudflare Dashboard → SSL/TLS → set encryption to **Full** or **Flexible**. Visit `https://gomofos.com` — should work with valid SSL.
 
 ---
 
-## PART 9: Switch to Production Stripe Keys
+## PART 9: Switch to Production Stripe Keys (Paths B & C only)
+
+Skip this for Path A — keep test key `sk_test_emergent`.
 
 1. Go to https://dashboard.stripe.com → switch to **Live mode** (toggle top-right)
 2. Developers → API keys → copy your **Secret key** (starts with `sk_live_...`)
 3. Update your backend `.env`:
    ```bash
-   sudo nano /var/www/esportsbet/backend/.env
+   sudo nano /var/www/gomofos/backend/.env
    ```
    Replace the `STRIPE_API_KEY` value with your live key.
 4. Restart backend:
    ```bash
-   sudo systemctl restart esportsbet-backend
+   sudo systemctl restart gomofos-backend
    ```
 
-### Configure Stripe webhook (recommended)
-1. In Stripe Dashboard → Developers → Webhooks → Add endpoint
-2. URL: `https://levelsquared.com.au/api/webhook/stripe`
+### Configure Stripe webhook
+1. Stripe Dashboard → Developers → Webhooks → Add endpoint
+2. URL: `https://gomofos.com/api/webhook/stripe`
 3. Events: select `checkout.session.completed`, `checkout.session.expired`
-4. (Optional) copy webhook signing secret if you add signature verification later
 
 ---
 
 ## PART 10: Final Verification Checklist
 
 ```bash
-# 1. Backend healthy
-curl https://levelsquared.com.au/api/leaderboard
+# 1. Backend healthy (from server itself)
+curl http://localhost:8001/api/leaderboard
 # Should return: []  (empty array)
 
-# 2. Frontend loads
-curl -I https://levelsquared.com.au
-# Should return: HTTP/2 200
+# 2. Through Nginx (from same LAN)
+curl http://192.168.0.124/api/leaderboard
+# Should return: []
 
-# 3. Service status
-sudo systemctl status esportsbet-backend
+# 3. Through domain
+# Path A: from LAN device with hosts edit
+curl -k https://gomofos.com/api/leaderboard
+# Path B/C: from anywhere
+curl https://gomofos.com/api/leaderboard
+
+# 4. Service status
+sudo systemctl status gomofos-backend
 sudo systemctl status nginx
 sudo systemctl status mongod
 ```
 
-Open `https://levelsquared.com.au` in a browser:
+Open `http(s)://gomofos.com` in a browser and verify:
 - ✅ Landing page loads
-- ✅ Can register a new account
-- ✅ Can login
+- ✅ Can register/login
 - ✅ Dashboard appears
-- ✅ Can add a game, create tournament, etc.
+- ✅ Can add game, create tournament
 
 ---
 
@@ -372,12 +525,12 @@ Open `https://levelsquared.com.au` in a browser:
 
 ### Deploy updates after code changes
 ```bash
-cd /var/www/esportsbet
+cd /var/www/gomofos
 git pull origin main       # if using git
 
 # Backend changes
 cd backend && source venv/bin/activate && pip install -r requirements.txt
-sudo systemctl restart esportsbet-backend
+sudo systemctl restart gomofos-backend
 
 # Frontend changes
 cd ../frontend && yarn install && yarn build
@@ -386,43 +539,39 @@ cd ../frontend && yarn install && yarn build
 
 ### View logs
 ```bash
-# Backend logs (real-time)
-sudo journalctl -u esportsbet-backend -f
-
-# Nginx access logs
-sudo tail -f /var/log/nginx/access.log
-
-# Nginx error logs
-sudo tail -f /var/log/nginx/error.log
+sudo journalctl -u gomofos-backend -f       # Backend (real-time)
+sudo tail -f /var/log/nginx/access.log      # Nginx access
+sudo tail -f /var/log/nginx/error.log       # Nginx errors
+sudo journalctl -u cloudflared -f           # Cloudflare tunnel (Path C only)
 ```
 
 ### Restart services
 ```bash
-sudo systemctl restart esportsbet-backend
+sudo systemctl restart gomofos-backend
 sudo systemctl restart nginx
 sudo systemctl restart mongod
 ```
 
-### Backup MongoDB (run weekly via cron)
+### Backup MongoDB (set up weekly cron)
 ```bash
-mongodump --db esportsbet_prod --out /var/backups/mongo-$(date +%F)
+mongodump --db gomofos_prod --out /var/backups/mongo-$(date +%F)
 ```
 
 ---
 
-## SECURITY HARDENING (Recommended)
+## SECURITY HARDENING
 
-### 1. Disable root SSH login
+### 1. Disable root SSH
 ```bash
 sudo nano /etc/ssh/sshd_config
 # Set: PermitRootLogin no
 sudo systemctl reload sshd
 ```
 
-### 2. Enable MongoDB auth (for production)
-Create admin user, then enable `security.authorization: enabled` in `/etc/mongod.conf`. Update `MONGO_URL` to include credentials.
+### 2. Enable MongoDB auth (production)
+Create admin user, then enable `security.authorization: enabled` in `/etc/mongod.conf`. Update `MONGO_URL` with credentials.
 
-### 3. Fail2ban (block brute-force SSH)
+### 3. Fail2ban (blocks brute-force SSH)
 ```bash
 sudo apt install -y fail2ban
 sudo systemctl enable fail2ban
@@ -440,21 +589,22 @@ sudo dpkg-reconfigure --priority=low unattended-upgrades
 
 | Issue | Fix |
 |---|---|
-| 502 Bad Gateway | Backend down → `sudo systemctl status esportsbet-backend` + check logs |
-| CORS errors | Verify `CORS_ORIGINS` in backend `.env` matches your domain exactly (with `https://`) |
-| Login works but `/me` fails | Cookies blocked → ensure `secure=True` only when site is on HTTPS |
-| Stripe redirect fails | `FRONTEND_URL` in backend `.env` must match your live domain |
-| `yarn build` fails on low RAM | Add swap: `sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
-| Site doesn't load after DNS | Run `dig levelsquared.com.au +short` — must show your server IP |
+| `gomofos.com` won't resolve | Path A: check `hosts` file. Path B: verify DNS + port forwarding. Path C: check `cloudflared` status |
+| 502 Bad Gateway | Backend down → `sudo systemctl status gomofos-backend` |
+| CORS errors | Verify `CORS_ORIGINS` in backend `.env` matches your URL exactly (http vs https) |
+| Login works but `/me` fails | Cookies blocked: HTTP → set `secure=False`; HTTPS → `secure=True` |
+| Stripe redirect breaks | `FRONTEND_URL` in backend `.env` must match the URL users actually visit |
+| `yarn build` fails (low RAM) | Add swap: `sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
+| Can reach from one LAN device, not another | Hosts file not updated on that device (Path A only) |
 
 ---
 
 ## LEGAL / COMPLIANCE NOTE
 
-Real-money gaming/betting platforms are regulated in **Australia** under the Interactive Gambling Act 2001 and require an AUSTRAC registration plus a state/territory wagering license. Before going live with real money:
+Real-money gaming/betting platforms are regulated in **Australia** under the Interactive Gambling Act 2001 and require AUSTRAC registration plus a state/territory wagering license. Before going live with real money:
 
 - Consult a lawyer specializing in Australian gambling law
-- Consider starting with **virtual currency only** (no real-money stakes) until you have proper licensing
-- Implement KYC/AML checks, responsible gambling features (deposit limits, self-exclusion), and age verification
+- Consider starting with **virtual currency only** (no real-money stakes) until properly licensed
+- Implement KYC/AML, responsible gambling features (deposit limits, self-exclusion), and age verification
 
-You can run the platform in "play money" mode by simply disabling the Stripe deposit endpoint and seeding users with virtual credits.
+You can run the platform in "play money" mode by disabling the Stripe deposit endpoint and seeding users with virtual credits.

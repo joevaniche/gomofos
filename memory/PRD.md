@@ -57,3 +57,8 @@
 - Match history and stats
 - Spectator mode for ongoing tournaments
 - Tournament invites and private tournaments
+
+## Deployment Target (Updated)
+- **Domain:** gomofos.com
+- **Server IP:** 192.168.0.124 (private LAN - requires Cloudflare Tunnel or port forwarding for public access)
+- **Deployment guide:** /app/DEPLOYMENT_GUIDE.md (3 deployment paths: LAN-only, Port Forwarding, Cloudflare Tunnel)
