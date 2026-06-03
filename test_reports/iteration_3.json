@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 3 backend tests: 42/42 PASSED. Covered tournament state machine (open->in_progress->pending_confirmation->completed/disputed), both-players-confirm submit-result flow (agreement auto-payout, disagreement -> disputed, admin-resolved), evidence upload/list/download via Emergent object storage, latency HTTP record + stats endpoint, WebSocket /api/ws/latency ping/pong and report, welcome bonus (1000 + welcome_bonus tx), daily bonus (250 + 24h cooldown), and role field on UserResponse. All legacy auth/games/tournaments/chat/wallet/stripe tests still green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/pytest.ini",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/new_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1060 lines and mixes auth/games/tournaments/evidence/latency/chat/wallet/ws in one module. Strongly recommend splitting into routers/ (routers/auth.py, routers/tournaments.py, routers/evidence.py, routers/latency.py, etc.) before further growth.",
+    "Object-storage helpers (init_storage, put_object, get_object) are synchronous `requests` calls inside async FastAPI handlers; on real traffic this will block the event loop. Move to httpx.AsyncClient or run in a thread executor.",
+    "Module-level `_storage_key` global is mutated inside async handlers without a lock; under concurrent failures two callers can race to re-init. Use asyncio.Lock or threadlock.",
+    "POST endpoints submit-result, complete, latency, and the WS pass key data as query params (claimed_winner_id, winner_user_id, latency_ms). Prefer Pydantic request bodies for POSTs — easier validation, no URL leakage of IDs in server logs, and more RESTful.",
+    "_award_winner_and_close iterates participants and issues an UPDATE per loser; for large tournaments use a single update_many({user_id: {$in: [...]}}, {$inc: {total_losses: 1}}).",
+    "submit-result has no idempotency: a participant can call it twice with different winners and the latest overwrites the earlier claim. Consider locking the claim once submitted, or detect re-submission distinctly.",
+    "WebSocket /api/ws/latency has no rate limit and no max-sample-size guard — a malicious client could flood tournament_latency. Add per-connection throttling.",
+    "FastAPI on_event('startup'/'shutdown') is deprecated; migrate to lifespan context manager.",
+    "Evidence download endpoint serves the full file in memory via Response(content=...) — fine for 10MB cap but consider StreamingResponse for future-proofing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (new)",
+    "/app/backend/tests/conftest.py (new, asyncio auto-mark)",
+    "/app/backend/tests/pytest.ini (new, asyncio_mode=auto)"
+  ],
+  "success_rate": {"backend": "100% (42/42 pytest)", "frontend": "not tested per request"},
+  "test_credentials": "Admin admin@esportsbet.com / admin123 verified working. New per-run TEST_ users registered for each scenario; wallets seeded via direct Mongo (no admin credit endpoint).",
+  "seed_data_creation": "Each test creates fresh TEST_-prefixed users + games + tournaments. PNG test images generated in-memory via PIL. Wallets seeded via pymongo direct update.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 42 backend tests green. New file /app/backend/tests/test_new_features.py covers iteration-3 features. WebSocket testing uses `websockets` package; URL is wss://<host>/api/ws/latency?tournament_id=X&token=<JWT_from_access_token_cookie>. Evidence upload requires multipart and the test session's default 'Content-Type: application/json' header must NOT be sent — helper _multipart_post uses bare requests.post with session.cookies. Object storage init runs on backend startup; key is cached in module-global. Frontend was explicitly skipped in this iteration per review_request.testing_type='backend only'.",
+  "rca of the issue": "Initial 3 evidence-upload test failures (422 'Field required body.file') were caused by the shared requests.Session having Content-Type: application/json set, which overrode the multipart boundary header that requests would otherwise auto-generate. Fix: use bare requests.post(..., cookies=session.cookies, files=...) for multipart so the library can set the correct Content-Type: multipart/form-data with boundary. No backend bug — test harness issue only."
+}

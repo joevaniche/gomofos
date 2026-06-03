@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, WebSocket, WebSocketDisconnect, Header, Query
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -17,7 +17,13 @@ import logging
 import bcrypt
 import jwt
 import secrets
+import uuid
+import requests
+import asyncio
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -92,6 +98,7 @@ class UserResponse(BaseModel):
     total_wins: int
     total_losses: int
     rank: int
+    role: Optional[str] = None
     created_at: str
 
 class GameCreate(BaseModel):
@@ -198,6 +205,7 @@ async def register(user_data: UserRegister, response: Response):
         total_wins=0,
         total_losses=0,
         rank=0,
+        role=None,
         created_at=user_doc["created_at"]
     )
 
@@ -247,6 +255,7 @@ async def login(credentials: UserLogin, request: Request, response: Response):
         total_wins=user.get("total_wins", 0),
         total_losses=user.get("total_losses", 0),
         rank=user.get("rank", 0),
+        role=user.get("role"),
         created_at=user["created_at"]
     )
 
@@ -266,6 +275,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         total_wins=user.get("total_wins", 0),
         total_losses=user.get("total_losses", 0),
         rank=user.get("rank", 0),
+        role=user.get("role"),
         created_at=user["created_at"]
     )
 
@@ -466,45 +476,118 @@ async def join_tournament(tournament_id: str, user: dict = Depends(get_current_u
         "result_status": "pending"
     })
     
-    # Update tournament
+    # Update tournament — auto start when full
     new_count = tournament["current_players"] + 1
-    await db.tournaments.update_one({"_id": ObjectId(tournament_id)}, {"$set": {"current_players": new_count}})
+    update_fields = {"current_players": new_count}
+    if new_count >= tournament["max_players"]:
+        update_fields["status"] = "in_progress"
+        update_fields["started_at"] = datetime.now(timezone.utc).isoformat()
+    await db.tournaments.update_one({"_id": ObjectId(tournament_id)}, {"$set": update_fields})
     
     return {"message": "Joined tournament successfully"}
 
-@api_router.post("/tournaments/{tournament_id}/complete")
-async def complete_tournament(tournament_id: str, winner_user_id: str, user: dict = Depends(get_current_user)):
+async def _award_winner_and_close(tournament_id: str, winner_user_id: str, resolution: str):
+    """Helper: pays out winner, updates losers, marks tournament completed."""
     tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Tournament not found")
-    
-    if tournament["creator_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only creator can complete tournament")
-    
-    if tournament["status"] != "open":
-        raise HTTPException(status_code=400, detail="Tournament already completed")
-    
-    # Validate winner is a participant
-    winner_participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": winner_user_id})
-    if not winner_participant:
-        raise HTTPException(status_code=400, detail="Winner must be a tournament participant")
-    
-    # Calculate total prize pool
     total_pool = tournament["stake_amount"] * tournament["current_players"]
-    platform_fee = total_pool * 0.05  # 5% platform fee
+    platform_fee = total_pool * 0.05
     winner_amount = total_pool - platform_fee
     
-    # Award winner
     await db.users.update_one({"_id": ObjectId(winner_user_id)}, {"$inc": {"wallet_balance": winner_amount, "total_wins": 1}})
+    await db.wallet_transactions.insert_one({
+        "user_id": winner_user_id,
+        "amount": winner_amount,
+        "type": "credit",
+        "reference_type": "tournament_win",
+        "reference_id": tournament_id,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
     
-    # Update losers
     participants = await db.tournament_participants.find({"tournament_id": tournament_id}).to_list(1000)
     for p in participants:
         if p["user_id"] != winner_user_id:
             await db.users.update_one({"_id": ObjectId(p["user_id"])}, {"$inc": {"total_losses": 1}})
     
-    # Update tournament
-    await db.tournaments.update_one({"_id": ObjectId(tournament_id)}, {"$set": {"status": "completed", "winner_id": winner_user_id}})
+    await db.tournaments.update_one(
+        {"_id": ObjectId(tournament_id)},
+        {"$set": {"status": "completed", "winner_id": winner_user_id, "resolution": resolution, "completed_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return winner_amount
+
+@api_router.post("/tournaments/{tournament_id}/submit-result")
+async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict = Depends(get_current_user)):
+    """Each participant submits who they believe won. When all participants submit, the system checks for agreement."""
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    if tournament["status"] not in ("in_progress", "pending_confirmation"):
+        raise HTTPException(status_code=400, detail="Tournament is not awaiting results")
+    
+    # Must be participant
+    participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user["id"]})
+    if not participant:
+        raise HTTPException(status_code=403, detail="Only participants can submit results")
+    
+    # Claimed winner must also be a participant
+    winner_check = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": claimed_winner_id})
+    if not winner_check:
+        raise HTTPException(status_code=400, detail="Claimed winner must be a tournament participant")
+    
+    # Record this player's claim
+    await db.tournament_participants.update_one(
+        {"tournament_id": tournament_id, "user_id": user["id"]},
+        {"$set": {"claimed_winner_id": claimed_winner_id, "result_submitted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Mark tournament as pending_confirmation
+    if tournament["status"] == "in_progress":
+        await db.tournaments.update_one({"_id": ObjectId(tournament_id)}, {"$set": {"status": "pending_confirmation"}})
+    
+    # Check if everyone has submitted
+    all_participants = await db.tournament_participants.find({"tournament_id": tournament_id}).to_list(1000)
+    submitted = [p for p in all_participants if p.get("claimed_winner_id")]
+    
+    if len(submitted) < len(all_participants):
+        return {"message": "Result submitted, waiting for other player(s)", "status": "pending_confirmation"}
+    
+    # All submitted — check agreement
+    claims = set(p["claimed_winner_id"] for p in submitted)
+    if len(claims) == 1:
+        # Everyone agrees
+        winner_id = claims.pop()
+        winner_amount = await _award_winner_and_close(tournament_id, winner_id, "auto_agreement")
+        return {"message": "Tournament completed (all players agreed)", "status": "completed", "winner_id": winner_id, "winner_amount": winner_amount}
+    else:
+        # Dispute
+        await db.tournaments.update_one(
+            {"_id": ObjectId(tournament_id)},
+            {"$set": {"status": "disputed", "disputed_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        return {"message": "Players disagreed on winner — dispute created", "status": "disputed"}
+
+@api_router.post("/tournaments/{tournament_id}/complete")
+async def complete_tournament(tournament_id: str, winner_user_id: str, user: dict = Depends(get_current_user)):
+    """Legacy creator-decides endpoint, kept for admin dispute resolution."""
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    is_admin = user_doc.get("role") == "admin"
+    
+    if not is_admin and tournament["creator_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only creator or admin can complete tournament")
+    
+    if tournament["status"] == "completed":
+        raise HTTPException(status_code=400, detail="Tournament already completed")
+    
+    winner_participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": winner_user_id})
+    if not winner_participant:
+        raise HTTPException(status_code=400, detail="Winner must be a tournament participant")
+    
+    resolution = "admin_resolved" if is_admin else "creator_decided"
+    winner_amount = await _award_winner_and_close(tournament_id, winner_user_id, resolution)
     
     return {"message": "Tournament completed", "winner_amount": winner_amount}
 
@@ -524,7 +607,9 @@ async def get_tournament_details(tournament_id: str):
         participant_list.append({
             "user_id": p["user_id"],
             "username": u["username"] if u else "Unknown",
-            "joined_at": p["joined_at"]
+            "joined_at": p["joined_at"],
+            "claimed_winner_id": p.get("claimed_winner_id"),
+            "result_submitted_at": p.get("result_submitted_at"),
         })
     
     return {
@@ -539,9 +624,214 @@ async def get_tournament_details(tournament_id: str):
         "current_players": tournament["current_players"],
         "winner_id": tournament.get("winner_id"),
         "start_time": tournament["start_time"],
+        "started_at": tournament.get("started_at"),
+        "disputed_at": tournament.get("disputed_at"),
+        "completed_at": tournament.get("completed_at"),
+        "resolution": tournament.get("resolution"),
         "created_at": tournament["created_at"],
         "participants": participant_list
     }
+
+# ============ EVIDENCE (Screenshots) ============
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "gomofos"
+_storage_key = None
+
+def init_storage():
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not emergent_key:
+        raise RuntimeError("EMERGENT_LLM_KEY not set")
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": emergent_key}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    if resp.status_code == 403:
+        global _storage_key
+        _storage_key = None
+        key = init_storage()
+        resp = requests.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            data=data, timeout=120
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    if resp.status_code == 403:
+        global _storage_key
+        _storage_key = None
+        key = init_storage()
+        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+@api_router.post("/tournaments/{tournament_id}/evidence")
+async def upload_evidence(tournament_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Upload a screenshot as evidence for a tournament (dispute resolution)."""
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user["id"]})
+    if not participant:
+        raise HTTPException(status_code=403, detail="Only participants can upload evidence")
+    
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only image files allowed (JPG, PNG, WEBP, GIF)")
+    
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "png"
+    path = f"{APP_NAME}/evidence/{tournament_id}/{uuid.uuid4()}.{ext}"
+    
+    result = put_object(path, data, file.content_type)
+    
+    evidence_doc = {
+        "id": str(uuid.uuid4()),
+        "tournament_id": tournament_id,
+        "user_id": user["id"],
+        "storage_path": result["path"],
+        "content_type": file.content_type,
+        "size": result.get("size", len(data)),
+        "original_filename": file.filename,
+        "uploaded_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.tournament_evidence.insert_one(evidence_doc)
+    
+    return {"id": evidence_doc["id"], "storage_path": result["path"], "uploaded_at": evidence_doc["uploaded_at"]}
+
+@api_router.get("/tournaments/{tournament_id}/evidence")
+async def list_evidence(tournament_id: str, user: dict = Depends(get_current_user)):
+    """List all evidence for a tournament."""
+    items = await db.tournament_evidence.find({"tournament_id": tournament_id}).to_list(100)
+    result = []
+    for item in items:
+        uploader = await db.users.find_one({"_id": ObjectId(item["user_id"])})
+        result.append({
+            "id": item["id"],
+            "user_id": item["user_id"],
+            "username": uploader["username"] if uploader else "Unknown",
+            "storage_path": item["storage_path"],
+            "uploaded_at": item["uploaded_at"],
+        })
+    return result
+
+@api_router.get("/evidence/{evidence_id}/download")
+async def download_evidence(evidence_id: str, user: dict = Depends(get_current_user)):
+    """Stream an evidence image."""
+    item = await db.tournament_evidence.find_one({"id": evidence_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    data, content_type = get_object(item["storage_path"])
+    return Response(content=data, media_type=item.get("content_type", content_type))
+
+# ============ LATENCY TRACKING ============
+@api_router.post("/tournaments/{tournament_id}/latency")
+async def record_latency(tournament_id: str, latency_ms: float, user: dict = Depends(get_current_user)):
+    """Record a single latency sample for a player during a match (HTTP fallback)."""
+    participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user["id"]})
+    if not participant:
+        raise HTTPException(status_code=403, detail="Only participants can record latency")
+    
+    await db.tournament_latency.insert_one({
+        "tournament_id": tournament_id,
+        "user_id": user["id"],
+        "latency_ms": float(latency_ms),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    return {"recorded": True}
+
+@api_router.get("/tournaments/{tournament_id}/latency")
+async def get_latency_history(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Get latency timeline for all participants of a tournament (for dispute review)."""
+    samples = await db.tournament_latency.find({"tournament_id": tournament_id}).sort("timestamp", 1).to_list(10000)
+    
+    # Group by user
+    by_user: Dict[str, list] = {}
+    for s in samples:
+        by_user.setdefault(s["user_id"], []).append({"latency_ms": s["latency_ms"], "timestamp": s["timestamp"]})
+    
+    # Attach usernames + summary
+    result = []
+    for uid, points in by_user.items():
+        u = await db.users.find_one({"_id": ObjectId(uid)})
+        latencies = [p["latency_ms"] for p in points]
+        result.append({
+            "user_id": uid,
+            "username": u["username"] if u else "Unknown",
+            "sample_count": len(points),
+            "avg_ms": round(sum(latencies) / len(latencies), 1) if latencies else 0,
+            "max_ms": max(latencies) if latencies else 0,
+            "min_ms": min(latencies) if latencies else 0,
+            "samples": points,
+        })
+    return result
+
+@app.websocket("/api/ws/latency")
+async def latency_websocket(websocket: WebSocket, tournament_id: str, token: str):
+    """Real-time latency ping endpoint. Client sends {ping: timestamp}; server immediately echoes and records latency."""
+    await websocket.accept()
+    
+    # Auth via query token (JWT access token)
+    try:
+        payload = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+        user_id = payload["sub"]
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user_doc:
+            await websocket.close(code=4401)
+            return
+    except Exception:
+        await websocket.close(code=4401)
+        return
+    
+    # Must be a participant
+    participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user_id})
+    if not participant:
+        await websocket.close(code=4403)
+        return
+    
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if message.get("type") == "ping":
+                client_ts = message.get("client_ts")
+                # Echo back immediately so client can measure RTT
+                await websocket.send_json({"type": "pong", "client_ts": client_ts, "server_ts": int(datetime.now(timezone.utc).timestamp() * 1000)})
+            elif message.get("type") == "report":
+                # Client reports its measured RTT
+                rtt = float(message.get("latency_ms", 0))
+                if rtt > 0:
+                    await db.tournament_latency.insert_one({
+                        "tournament_id": tournament_id,
+                        "user_id": user_id,
+                        "latency_ms": rtt,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 # Chat endpoints
 @api_router.post("/chat", response_model=ChatMessageResponse)
@@ -762,9 +1052,13 @@ async def startup_event():
         await db.users.insert_one({"email": admin_email, "password_hash": hashed, "username": "Admin", "role": "admin", "wallet_balance": 0.0, "total_wins": 0, "total_losses": 0, "rank": 0, "created_at": datetime.now(timezone.utc).isoformat()})
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+    
+    # Init object storage
+    try:
+        init_storage()
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.error(f"Storage init failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
