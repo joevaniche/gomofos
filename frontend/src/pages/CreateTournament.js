@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { SignOut, Wallet } from '@phosphor-icons/react';
+import { SignOut, Coins } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -105,8 +105,8 @@ function CreateTournament() {
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Wallet size={18} weight="bold" />
-              ${user?.wallet_balance?.toFixed(2) || '0.00'}
+              <Coins size={18} weight="bold" />
+              {user?.wallet_balance?.toFixed(0) || '0'} CR
             </Link>
             <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
               <SignOut size={18} weight="bold" />
@@ -141,19 +141,19 @@ function CreateTournament() {
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">STAKE AMOUNT (USD)</label>
+                <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">STAKE AMOUNT (CREDITS)</label>
                 <input
                   data-testid="tournament-stake-input"
                   type="number"
-                  step="0.01"
-                  min="0.01"
+                  step="1"
+                  min="1"
                   value={formData.stake_amount}
                   onChange={(e) => setFormData({...formData, stake_amount: e.target.value})}
                   required
                   className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]"
-                  placeholder="10.00"
+                  placeholder="100"
                 />
-                <p className="text-xs text-[#A3A3A3] mt-2">Your balance: ${user?.wallet_balance?.toFixed(2) || '0.00'}</p>
+                <p className="text-xs text-[#A3A3A3] mt-2">Your balance: {user?.wallet_balance?.toFixed(0) || '0'} CR</p>
               </div>
 
               <div>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Trophy, GameController, Users, SignOut, Plus, Wallet } from '@phosphor-icons/react';
+import { Trophy, GameController, Users, SignOut, Plus, Coins } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -51,8 +51,8 @@ function Dashboard() {
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Wallet size={18} weight="bold" />
-              ${user?.wallet_balance?.toFixed(2) || '0.00'}
+              <Coins size={18} weight="bold" />
+              {user?.wallet_balance?.toFixed(0) || '0'} CR
             </Link>
             <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
               <SignOut size={18} weight="bold" />
@@ -94,7 +94,7 @@ function Dashboard() {
               <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">TOTAL STAKES</p>
               <Trophy size={24} weight="duotone" className="text-[#22C55E]" />
             </div>
-            <p className="text-4xl font-black tracking-tighter" style={{fontFamily: 'Chivo'}}>${stats.totalStakes.toFixed(2)}</p>
+            <p className="text-4xl font-black tracking-tighter" style={{fontFamily: 'Chivo'}}>{stats.totalStakes.toFixed(0)} CR</p>
           </div>
         </div>
 
@@ -144,7 +144,7 @@ function Dashboard() {
                 >
                   <div className="p-6">
                     <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-2">{tournament.game_name}</p>
-                    <h4 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>STAKE: ${tournament.stake_amount}</h4>
+                    <h4 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>STAKE: {tournament.stake_amount} CR</h4>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[#A3A3A3]">{tournament.current_players}/{tournament.max_players} PLAYERS</span>
                       <span className="text-[#22C55E] font-bold">OPEN</span>

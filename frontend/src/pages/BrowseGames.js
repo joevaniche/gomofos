@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, GameController, SignOut, Wallet } from '@phosphor-icons/react';
+import { Plus, GameController, SignOut, Coins } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -59,8 +59,8 @@ function BrowseGames() {
             <Link to="/games" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Wallet size={18} weight="bold" />
-              ${user?.wallet_balance?.toFixed(2) || '0.00'}
+              <Coins size={18} weight="bold" />
+              {user?.wallet_balance?.toFixed(0) || '0'} CR
             </Link>
             <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
               <SignOut size={18} weight="bold" />

@@ -158,18 +158,31 @@ async def register(user_data: UserRegister, response: Response):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_pw = hash_password(user_data.password)
+    # Play-money mode: new users get 1000 free credits to start
+    WELCOME_BONUS = 1000.0
     user_doc = {
         "email": email,
         "username": user_data.username,
         "password_hash": hashed_pw,
-        "wallet_balance": 0.0,
+        "wallet_balance": WELCOME_BONUS,
         "total_wins": 0,
         "total_losses": 0,
         "rank": 0,
+        "last_daily_bonus": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
+    
+    # Log the welcome bonus as a wallet transaction
+    await db.wallet_transactions.insert_one({
+        "user_id": user_id,
+        "amount": WELCOME_BONUS,
+        "type": "credit",
+        "reference_type": "welcome_bonus",
+        "reference_id": user_id,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
     
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
@@ -181,7 +194,7 @@ async def register(user_data: UserRegister, response: Response):
         id=user_id,
         email=email,
         username=user_data.username,
-        wallet_balance=0.0,
+        wallet_balance=WELCOME_BONUS,
         total_wins=0,
         total_losses=0,
         rank=0,
@@ -571,6 +584,60 @@ async def get_messages(tournament_id: str):
     return result
 
 # Wallet/Payment endpoints
+@api_router.post("/wallet/daily-bonus")
+async def claim_daily_bonus(user: dict = Depends(get_current_user)):
+    """Play-money mode: claim a free credit bonus once every 24 hours."""
+    DAILY_BONUS = 250.0
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    last_claim_str = user_doc.get("last_daily_bonus")
+    now = datetime.now(timezone.utc)
+    
+    if last_claim_str:
+        last_claim = datetime.fromisoformat(last_claim_str)
+        if last_claim.tzinfo is None:
+            last_claim = last_claim.replace(tzinfo=timezone.utc)
+        hours_since = (now - last_claim).total_seconds() / 3600
+        if hours_since < 24:
+            hours_remaining = 24 - hours_since
+            raise HTTPException(
+                status_code=400,
+                detail=f"Daily bonus already claimed. Try again in {int(hours_remaining)}h {int((hours_remaining % 1) * 60)}m."
+            )
+    
+    # Credit the bonus
+    await db.users.update_one(
+        {"_id": ObjectId(user["id"])},
+        {"$inc": {"wallet_balance": DAILY_BONUS}, "$set": {"last_daily_bonus": now.isoformat()}}
+    )
+    await db.wallet_transactions.insert_one({
+        "user_id": user["id"],
+        "amount": DAILY_BONUS,
+        "type": "credit",
+        "reference_type": "daily_bonus",
+        "reference_id": user["id"],
+        "timestamp": now.isoformat()
+    })
+    
+    return {"message": "Daily bonus claimed!", "amount": DAILY_BONUS, "new_balance": user_doc.get("wallet_balance", 0.0) + DAILY_BONUS}
+
+@api_router.get("/wallet/daily-bonus/status")
+async def daily_bonus_status(user: dict = Depends(get_current_user)):
+    """Check if user can claim daily bonus right now."""
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    last_claim_str = user_doc.get("last_daily_bonus")
+    
+    if not last_claim_str:
+        return {"can_claim": True, "hours_remaining": 0}
+    
+    last_claim = datetime.fromisoformat(last_claim_str)
+    if last_claim.tzinfo is None:
+        last_claim = last_claim.replace(tzinfo=timezone.utc)
+    hours_since = (datetime.now(timezone.utc) - last_claim).total_seconds() / 3600
+    
+    if hours_since >= 24:
+        return {"can_claim": True, "hours_remaining": 0}
+    return {"can_claim": False, "hours_remaining": round(24 - hours_since, 1)}
+
 @api_router.post("/wallet/deposit")
 async def create_deposit(req: DepositRequest, user: dict = Depends(get_current_user)):
     if req.amount <= 0:
@@ -695,11 +762,6 @@ async def startup_event():
         await db.users.insert_one({"email": admin_email, "password_hash": hashed, "username": "Admin", "role": "admin", "wallet_balance": 0.0, "total_wins": 0, "total_losses": 0, "rank": 0, "created_at": datetime.now(timezone.utc).isoformat()})
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
-    
-    # Write test credentials
-    Path("/app/memory").mkdir(exist_ok=True)
-    with open("/app/memory/test_credentials.md", "w") as f:
-        f.write(f"""# Test Credentials\n\n## Admin Account\n- Email: {admin_email}\n- Password: {admin_password}\n- Role: admin\n\n## Auth Endpoints\n- POST /api/auth/register\n- POST /api/auth/login\n- GET /api/auth/me\n- POST /api/auth/logout\n- POST /api/auth/refresh\n- POST /api/auth/forgot-password\n- POST /api/auth/reset-password\n""")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

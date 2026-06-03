@@ -30,7 +30,7 @@ function Register() {
       <div className="w-full max-w-md">
         <div className="mb-8">
           <h1 className="text-4xl font-black tracking-tighter text-white mb-2" style={{fontFamily: 'Chivo'}}>REGISTER</h1>
-          <p className="text-sm text-[#A3A3A3]">Create your account to start competing</p>
+          <p className="text-sm text-[#A3A3A3]">Create your account and get <span className="text-[#22C55E] font-bold">1,000 free credits</span> to start</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" data-testid="register-form">

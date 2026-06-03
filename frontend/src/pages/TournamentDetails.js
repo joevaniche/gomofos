@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { SignOut, Wallet, Users, Trophy, PaperPlaneRight } from '@phosphor-icons/react';
+import { SignOut, Coins, Users, Trophy, PaperPlaneRight } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -86,7 +86,7 @@ function TournamentDetails() {
     setCompleting(true);
     try {
       const { data } = await axios.post(`${API}/tournaments/${id}/complete?winner_user_id=${selectedWinner}`, {}, { withCredentials: true });
-      toast.success(`Tournament completed! Winner receives $${data.winner_amount.toFixed(2)}`);
+      toast.success(`Tournament completed! Winner receives ${data.winner_amount.toFixed(0)} CR`);
       await checkAuth();
       loadTournament();
     } catch (e) {
@@ -124,8 +124,8 @@ function TournamentDetails() {
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Wallet size={18} weight="bold" />
-              ${user?.wallet_balance?.toFixed(2) || '0.00'}
+              <Coins size={18} weight="bold" />
+              {user?.wallet_balance?.toFixed(0) || '0'} CR
             </Link>
             <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
               <SignOut size={18} weight="bold" />
@@ -141,7 +141,7 @@ function TournamentDetails() {
           <div className="lg:col-span-2 space-y-6">
             <div className="border border-[#262626] bg-[#141414] p-6">
               <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-2">{tournament?.game_name}</p>
-              <h2 className="text-3xl font-black tracking-tighter text-white mb-4" style={{fontFamily: 'Chivo'}}>STAKE: ${tournament?.stake_amount}</h2>
+              <h2 className="text-3xl font-black tracking-tighter text-white mb-4" style={{fontFamily: 'Chivo'}}>STAKE: {tournament?.stake_amount} CR</h2>
               
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
@@ -156,7 +156,7 @@ function TournamentDetails() {
                 </div>
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">PRIZE POOL</p>
-                  <p className="text-lg font-bold text-[#22C55E]">${(tournament?.stake_amount * tournament?.current_players * 0.95).toFixed(2)}</p>
+                  <p className="text-lg font-bold text-[#22C55E]">{(tournament?.stake_amount * tournament?.current_players * 0.95).toFixed(0)} CR</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">HOST</p>
@@ -171,7 +171,7 @@ function TournamentDetails() {
                   disabled={joining}
                   className="w-full px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors disabled:opacity-50"
                 >
-                  {joining ? 'JOINING...' : `JOIN FOR $${tournament?.stake_amount}`}
+                  {joining ? 'JOINING...' : `JOIN FOR ${tournament?.stake_amount} CR`}
                 </button>
               )}
 

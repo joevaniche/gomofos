@@ -50,7 +50,7 @@ function LandingPage() {
               STAKE. COMPETE. DOMINATE.
             </h1>
             <p className="text-sm sm:text-base leading-relaxed tracking-wide text-[#A3A3A3] mb-8 max-w-2xl">
-              Join the ultimate esports betting platform. Organize tournaments, stake real money, and prove your skills across FIFA, NBA, Call of Duty, and more. Winner takes all.
+              Join the ultimate esports competition platform. Organize tournaments, stake credits, and prove your skills across FIFA, NBA, Call of Duty, and more. Winner takes the pot.
             </p>
             <button data-testid="hero-get-started-btn" onClick={() => navigate('/register')} className="px-8 py-4 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors text-lg">
               START COMPETING
@@ -66,7 +66,7 @@ function LandingPage() {
             <div className="border border-[#262626] p-6 bg-[#0A0A0A]" data-testid="feature-secure-escrow">
               <Shield size={40} weight="duotone" className="text-[#FF3B30] mb-4" />
               <h3 className="text-xl font-bold mb-2 tracking-tight" style={{fontFamily: 'Chivo'}}>SECURE ESCROW</h3>
-              <p className="text-sm text-[#A3A3A3] leading-relaxed">Platform holds stakes in escrow. Winner gets paid automatically.</p>
+              <p className="text-sm text-[#A3A3A3] leading-relaxed">Platform holds stakes in escrow. Winner gets the pot automatically.</p>
             </div>
             
             <div className="border border-[#262626] p-6 bg-[#0A0A0A]" data-testid="feature-all-games">
