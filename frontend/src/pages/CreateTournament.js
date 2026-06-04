@@ -15,6 +15,7 @@ function CreateTournament() {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     game_id: '',
+    platform: '',
     stake_amount: '',
     max_players: 2,
     start_time: ''
@@ -33,11 +34,21 @@ function CreateTournament() {
       const { data } = await axios.get(`${API}/games`, { withCredentials: true });
       setGames(data);
       if (data.length > 0) {
-        setFormData(prev => ({ ...prev, game_id: data[0].id }));
+        const firstPlatforms = (data[0].platform || '').split(',').map(p => p.trim()).filter(Boolean);
+        setFormData(prev => ({ ...prev, game_id: data[0].id, platform: firstPlatforms[0] || '' }));
       }
     } catch (e) {
       toast.error('Failed to load games');
     }
+  };
+
+  const selectedGame = games.find(g => g.id === formData.game_id);
+  const platformOptions = selectedGame ? (selectedGame.platform || '').split(',').map(p => p.trim()).filter(Boolean) : [];
+
+  const handleGameChange = (gameId) => {
+    const game = games.find(g => g.id === gameId);
+    const platforms = game ? (game.platform || '').split(',').map(p => p.trim()).filter(Boolean) : [];
+    setFormData({ ...formData, game_id: gameId, platform: platforms[0] || '' });
   };
 
   const handleSubmit = async (e) => {
@@ -46,6 +57,10 @@ function CreateTournament() {
     const stakeAmount = parseFloat(formData.stake_amount);
     if (stakeAmount <= 0) {
       toast.error('Stake amount must be greater than 0');
+      return;
+    }
+    if (!formData.platform) {
+      toast.error('Please select a platform');
       return;
     }
     
@@ -58,6 +73,7 @@ function CreateTournament() {
     try {
       const { data } = await axios.post(`${API}/tournaments`, {
         game_id: formData.game_id,
+        platform: formData.platform,
         stake_amount: stakeAmount,
         max_players: parseInt(formData.max_players),
         start_time: new Date(formData.start_time).toISOString()
@@ -103,6 +119,7 @@ function CreateTournament() {
           <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
+            <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -133,7 +150,7 @@ function CreateTournament() {
                 <select
                   data-testid="tournament-game-select"
                   value={formData.game_id}
-                  onChange={(e) => setFormData({...formData, game_id: e.target.value})}
+                  onChange={(e) => handleGameChange(e.target.value)}
                   required
                   className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]"
                 >
@@ -141,6 +158,34 @@ function CreateTournament() {
                     <option key={game.id} value={game.id}>{game.name} - {game.platform}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">PLATFORM</label>
+                {platformOptions.length > 1 ? (
+                  <select
+                    data-testid="tournament-platform-select"
+                    value={formData.platform}
+                    onChange={(e) => setFormData({...formData, platform: e.target.value})}
+                    required
+                    className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]"
+                  >
+                    {platformOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    data-testid="tournament-platform-input"
+                    type="text"
+                    value={formData.platform}
+                    onChange={(e) => setFormData({...formData, platform: e.target.value})}
+                    required
+                    placeholder="e.g. PC, PS5, Xbox Series"
+                    className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]"
+                  />
+                )}
+                {platformOptions.length > 1 && (
+                  <p className="text-xs text-[#A3A3A3] mt-2">All players must compete on this platform</p>
+                )}
               </div>
 
               <div>

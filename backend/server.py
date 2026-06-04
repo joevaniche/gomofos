@@ -138,6 +138,7 @@ class GameResponse(BaseModel):
 
 class TournamentCreate(BaseModel):
     game_id: str
+    platform: str
     stake_amount: float
     max_players: int
     start_time: str
@@ -146,6 +147,7 @@ class TournamentResponse(BaseModel):
     id: str
     game_id: str
     game_name: str
+    platform: str
     creator_id: str
     creator_username: str
     stake_amount: float
@@ -887,10 +889,39 @@ async def admin_seed_games(user: dict = Depends(get_current_user)):
     }
 
 # Tournament endpoints
+async def _cleanup_expired_tournaments():
+    """Delete tournaments whose start_time has passed but never filled (still 'open'). Refund all participants."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expired = await db.tournaments.find({
+        "status": "open",
+        "start_time": {"$lt": now_iso}
+    }).to_list(1000)
+    for t in expired:
+        tid = str(t["_id"])
+        participants = await db.tournament_participants.find({"tournament_id": tid}).to_list(1000)
+        for p in participants:
+            await db.users.update_one(
+                {"_id": ObjectId(p["user_id"])},
+                {"$inc": {"wallet_balance": t["stake_amount"]}}
+            )
+            await db.wallet_transactions.insert_one({
+                "user_id": p["user_id"],
+                "amount": t["stake_amount"],
+                "type": "credit",
+                "reference_type": "tournament_expired_refund",
+                "reference_id": tid,
+                "timestamp": now_iso,
+            })
+        await db.tournament_participants.delete_many({"tournament_id": tid})
+        await db.tournaments.delete_one({"_id": t["_id"]})
+
+
 @api_router.post("/tournaments", response_model=TournamentResponse)
 async def create_tournament(tournament_data: TournamentCreate, user: dict = Depends(get_current_user)):
     if tournament_data.stake_amount <= 0:
         raise HTTPException(status_code=400, detail="Stake amount must be greater than 0")
+    if not tournament_data.platform or not tournament_data.platform.strip():
+        raise HTTPException(status_code=400, detail="Platform is required")
     
     game = await db.games.find_one({"_id": ObjectId(tournament_data.game_id)})
     if not game:
@@ -905,6 +936,7 @@ async def create_tournament(tournament_data: TournamentCreate, user: dict = Depe
     
     tournament_doc = {
         "game_id": tournament_data.game_id,
+        "platform": tournament_data.platform.strip(),
         "creator_id": user["id"],
         "stake_amount": tournament_data.stake_amount,
         "status": "open",
@@ -928,6 +960,7 @@ async def create_tournament(tournament_data: TournamentCreate, user: dict = Depe
         id=str(result.inserted_id),
         game_id=tournament_data.game_id,
         game_name=game["name"],
+        platform=tournament_doc["platform"],
         creator_id=user["id"],
         creator_username=user["username"],
         stake_amount=tournament_data.stake_amount,
@@ -940,12 +973,28 @@ async def create_tournament(tournament_data: TournamentCreate, user: dict = Depe
     )
 
 @api_router.get("/tournaments", response_model=List[TournamentResponse])
-async def get_tournaments(status: Optional[str] = None, current: dict = Depends(get_current_user)):
-    query = {}
+async def get_tournaments(
+    status: Optional[str] = None,
+    game_id: Optional[str] = None,
+    platform: Optional[str] = None,
+    min_stake: Optional[float] = None,
+    max_stake: Optional[float] = None,
+    current: dict = Depends(get_current_user)
+):
+    await _cleanup_expired_tournaments()
+    query: Dict[str, Any] = {}
     if status:
         query["status"] = status
+    if game_id:
+        query["game_id"] = game_id
+    if platform:
+        query["platform"] = platform
+    if min_stake is not None:
+        query.setdefault("stake_amount", {})["$gte"] = min_stake
+    if max_stake is not None:
+        query.setdefault("stake_amount", {})["$lte"] = max_stake
     
-    tournaments = await db.tournaments.find(query).to_list(1000)
+    tournaments = await db.tournaments.find(query).sort("created_at", -1).to_list(1000)
     result = []
     
     for t in tournaments:
@@ -959,6 +1008,7 @@ async def get_tournaments(status: Optional[str] = None, current: dict = Depends(
             id=str(t["_id"]),
             game_id=t["game_id"],
             game_name=game["name"] if game else "Unknown",
+            platform=t.get("platform") or (game["platform"] if game else "Unknown"),
             creator_id=t["creator_id"],
             creator_username=creator["username"] if creator else "Unknown",
             stake_amount=t["stake_amount"],
@@ -970,6 +1020,41 @@ async def get_tournaments(status: Optional[str] = None, current: dict = Depends(
             created_at=t["created_at"]
         ))
     
+    return result
+
+
+@api_router.get("/tournaments/mine", response_model=List[TournamentResponse])
+async def get_my_tournaments(current: dict = Depends(get_current_user)):
+    """All non-completed tournaments where the current user is creator or participant."""
+    await _cleanup_expired_tournaments()
+    parts = await db.tournament_participants.find({"user_id": current["id"]}).to_list(2000)
+    tournament_ids = list({p["tournament_id"] for p in parts})
+    object_ids = [ObjectId(tid) for tid in tournament_ids]
+    if not object_ids:
+        return []
+    tournaments = await db.tournaments.find({
+        "_id": {"$in": object_ids},
+        "status": {"$in": ["open", "in_progress", "pending_confirmation", "disputed"]}
+    }).sort("created_at", -1).to_list(1000)
+    result = []
+    for t in tournaments:
+        game = await db.games.find_one({"_id": ObjectId(t["game_id"])})
+        creator = await db.users.find_one({"_id": ObjectId(t["creator_id"])})
+        result.append(TournamentResponse(
+            id=str(t["_id"]),
+            game_id=t["game_id"],
+            game_name=game["name"] if game else "Unknown",
+            platform=t.get("platform") or (game["platform"] if game else "Unknown"),
+            creator_id=t["creator_id"],
+            creator_username=creator["username"] if creator else "Unknown",
+            stake_amount=t["stake_amount"],
+            status=t["status"],
+            max_players=t["max_players"],
+            current_players=t["current_players"],
+            winner_id=t.get("winner_id"),
+            start_time=t["start_time"],
+            created_at=t["created_at"]
+        ))
     return result
 
 @api_router.post("/tournaments/{tournament_id}/join")
@@ -1175,6 +1260,7 @@ async def get_tournament_details(tournament_id: str):
         "id": str(tournament["_id"]),
         "game_id": tournament["game_id"],
         "game_name": game["name"] if game else "Unknown",
+        "platform": tournament.get("platform") or (game["platform"] if game else "Unknown"),
         "creator_id": tournament["creator_id"],
         "creator_username": creator["username"] if creator else "Unknown",
         "stake_amount": tournament["stake_amount"],

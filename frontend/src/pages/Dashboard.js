@@ -23,10 +23,10 @@ function Dashboard() {
 
   const loadTournaments = async () => {
     try {
-      const { data } = await axios.get(`${API}/tournaments?status=open`, { withCredentials: true });
+      const { data } = await axios.get(`${API}/tournaments/mine`, { withCredentials: true });
       setTournaments(data);
       
-      // Calculate stats
+      // Stats: my active tournaments only
       const activeTournaments = data.length;
       const totalPlayers = data.reduce((sum, t) => sum + t.current_players, 0);
       const totalStakes = data.reduce((sum, t) => sum + (t.stake_amount * t.current_players), 0);
@@ -58,6 +58,7 @@ function Dashboard() {
           <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-dashboard">DASHBOARD</Link>
+            <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -87,7 +88,7 @@ function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="border border-[#262626] p-6 bg-[#141414]" data-testid="stat-active-tournaments">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">ACTIVE TOURNAMENTS</p>
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">MY ACTIVE TOURNAMENTS</p>
               <GameController size={24} weight="duotone" className="text-[#FF3B30]" />
             </div>
             <p className="text-4xl font-black tracking-tighter" style={{fontFamily: 'Chivo'}}>{stats.activeTournaments}</p>
@@ -95,7 +96,7 @@ function Dashboard() {
 
           <div className="border border-[#262626] p-6 bg-[#141414]" data-testid="stat-total-players">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">TOTAL PLAYERS</p>
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">OPPONENTS IN PLAY</p>
               <Users size={24} weight="duotone" className="text-[#007AFF]" />
             </div>
             <p className="text-4xl font-black tracking-tighter" style={{fontFamily: 'Chivo'}}>{stats.totalPlayers}</p>
@@ -103,7 +104,7 @@ function Dashboard() {
 
           <div className="border border-[#262626] p-6 bg-[#141414]" data-testid="stat-total-stakes">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">TOTAL STAKES</p>
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">MY ACTIVE STAKES</p>
               <Trophy size={24} weight="duotone" className="text-[#22C55E]" />
             </div>
             <p className="text-4xl font-black tracking-tighter" style={{fontFamily: 'Chivo'}}>{stats.totalStakes.toFixed(0)} CR</p>
@@ -182,42 +183,68 @@ function Dashboard() {
 
         {/* Active Tournaments */}
         <div>
-          <h3 className="text-2xl font-bold tracking-tight mb-4" style={{fontFamily: 'Chivo'}}>ACTIVE TOURNAMENTS</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-2xl font-bold tracking-tight" style={{fontFamily: 'Chivo'}}>MY ACTIVE TOURNAMENTS</h3>
+            <Link to="/tournaments" className="text-sm font-bold text-[#FF3B30] hover:text-[#D62F26]" data-testid="browse-all-tournaments">BROWSE ALL →</Link>
+          </div>
           {loading ? (
             <p className="text-[#A3A3A3]">Loading...</p>
           ) : tournaments.length === 0 ? (
             <div className="border border-[#262626] p-12 text-center bg-[#141414]" data-testid="no-tournaments">
               <GameController size={64} weight="duotone" className="text-[#3F3F3F] mx-auto mb-4" />
-              <p className="text-[#A3A3A3] mb-4">No active tournaments</p>
-              <button
-                onClick={() => navigate('/create-tournament')}
-                className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors"
-              >
-                CREATE FIRST TOURNAMENT
-              </button>
+              <p className="text-[#A3A3A3] mb-4">You're not in any active tournaments yet</p>
+              <div className="flex gap-3 justify-center flex-wrap">
+                <button
+                  onClick={() => navigate('/tournaments')}
+                  className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all"
+                >
+                  BROWSE TOURNAMENTS
+                </button>
+                <button
+                  onClick={() => navigate('/create-tournament')}
+                  className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors"
+                >
+                  CREATE TOURNAMENT
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tournaments.map((tournament) => (
-                <div
-                  key={tournament.id}
-                  className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors cursor-pointer"
-                  onClick={() => navigate(`/tournament/${tournament.id}`)}
-                  data-testid={`tournament-card-${tournament.id}`}
-                >
-                  <div className="p-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-2">{tournament.game_name}</p>
-                    <h4 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>STAKE: {tournament.stake_amount} CR</h4>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[#A3A3A3]">{tournament.current_players}/{tournament.max_players} PLAYERS</span>
-                      <span className="text-[#22C55E] font-bold">OPEN</span>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-[#262626]">
-                      <p className="text-xs text-[#A3A3A3]">Host: {tournament.creator_username}</p>
+              {tournaments.map((tournament) => {
+                const statusColor = {
+                  'open': 'text-[#22C55E]',
+                  'in_progress': 'text-[#007AFF]',
+                  'pending_confirmation': 'text-[#F59E0B]',
+                  'disputed': 'text-[#EF4444]',
+                }[tournament.status] || 'text-[#A3A3A3]';
+                const statusLabel = {
+                  'open': 'WAITING',
+                  'in_progress': 'IN PLAY',
+                  'pending_confirmation': 'AWAITING RESULT',
+                  'disputed': 'DISPUTED',
+                }[tournament.status] || tournament.status.toUpperCase();
+                return (
+                  <div
+                    key={tournament.id}
+                    className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors cursor-pointer"
+                    onClick={() => navigate(`/tournament/${tournament.id}`)}
+                    data-testid={`tournament-card-${tournament.id}`}
+                  >
+                    <div className="p-6">
+                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">{tournament.game_name}</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#007AFF] mb-3">{tournament.platform}</p>
+                      <h4 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>STAKE: {tournament.stake_amount} CR</h4>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-[#A3A3A3]">{tournament.current_players}/{tournament.max_players} PLAYERS</span>
+                        <span className={`${statusColor} font-bold`}>{statusLabel}</span>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-[#262626]">
+                        <p className="text-xs text-[#A3A3A3]">Host: {tournament.creator_username}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
