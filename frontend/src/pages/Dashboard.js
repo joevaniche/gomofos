@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Trophy, GameController, Users, SignOut, Plus, Coins } from '@phosphor-icons/react';
+import { Trophy, GameController, Users, SignOut, Plus, Coins, Sword, User } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -11,11 +11,13 @@ function Dashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [tournaments, setTournaments] = useState([]);
+  const [challenges, setChallenges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ activeTournaments: 0, totalPlayers: 0, totalStakes: 0 });
 
   useEffect(() => {
     loadTournaments();
+    loadChallenges();
   }, []);
 
   const loadTournaments = async () => {
@@ -35,6 +37,13 @@ function Dashboard() {
     }
   };
 
+  const loadChallenges = async () => {
+    try {
+      const { data } = await axios.get(`${API}/challenges/incoming`, { withCredentials: true });
+      setChallenges(data);
+    } catch (e) { /* ignore */ }
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -48,8 +57,10 @@ function Dashboard() {
           <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-dashboard">DASHBOARD</Link>
+            <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
+            <Link to="/profile" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-profile">PROFILE</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
               <Coins size={18} weight="bold" />
               {user?.wallet_balance?.toFixed(0) || '0'} CR
@@ -98,21 +109,47 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* Incoming Challenges */}
+        {challenges.length > 0 && (
+          <div className="mb-8" data-testid="incoming-challenges">
+            <h3 className="text-2xl font-bold tracking-tight mb-4 flex items-center gap-2" style={{fontFamily: 'Chivo'}}>
+              <Sword size={24} weight="duotone" className="text-[#FF3B30]" />
+              INCOMING CHALLENGES
+              <span className="text-sm px-2 py-1 bg-[#FF3B30] text-white">{challenges.length}</span>
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {challenges.map(c => (
+                <div key={c.tournament_id} onClick={() => navigate(`/tournament/${c.tournament_id}`)}
+                  className="border border-[#FF3B30] bg-[#FF3B30]/5 p-4 hover:bg-[#FF3B30]/10 transition-all cursor-pointer"
+                  data-testid={`challenge-${c.tournament_id}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">{c.game_name} • {c.game_platform}</p>
+                      <h4 className="text-lg font-bold" style={{fontFamily: 'Chivo'}}>{c.challenger_username} CHALLENGED YOU</h4>
+                      <p className="text-sm text-[#22C55E] font-bold mt-2">STAKE: {c.stake_amount} CR</p>
+                    </div>
+                    <Sword size={32} weight="duotone" className="text-[#FF3B30] shrink-0" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
-        <div className="flex gap-4 mb-8">
-          <button
-            data-testid="create-tournament-btn"
-            onClick={() => navigate('/create-tournament')}
-            className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors flex items-center gap-2"
-          >
+        <div className="flex gap-4 mb-8 flex-wrap">
+          <button data-testid="create-tournament-btn" onClick={() => navigate('/create-tournament')}
+            className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors flex items-center gap-2">
             <Plus size={20} weight="bold" />
             CREATE TOURNAMENT
           </button>
-          <button
-            data-testid="browse-games-btn"
-            onClick={() => navigate('/games')}
-            className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all"
-          >
+          <button data-testid="find-players-btn" onClick={() => navigate('/players')}
+            className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all flex items-center gap-2">
+            <User size={20} weight="bold" />
+            FIND PLAYERS
+          </button>
+          <button data-testid="browse-games-btn" onClick={() => navigate('/games')}
+            className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all">
             BROWSE GAMES
           </button>
         </div>

@@ -11,6 +11,9 @@ import CreateTournament from './pages/CreateTournament';
 import TournamentDetails from './pages/TournamentDetails';
 import Wallet from './pages/Wallet';
 import Leaderboard from './pages/Leaderboard';
+import ProfileEdit from './pages/ProfileEdit';
+import ProfileView from './pages/ProfileView';
+import PlayerSearch from './pages/PlayerSearch';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
@@ -29,6 +32,9 @@ function App() {
             <Route path="/tournament/:id" element={<ProtectedRoute><TournamentDetails /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
             <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+            <Route path="/players" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
+            <Route path="/profile/:id" element={<ProtectedRoute><ProfileView /></ProtectedRoute>} />
           </Routes>
           <Toaster position="top-right" />
         </div>

@@ -48,8 +48,10 @@ function Leaderboard() {
           <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
+            <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-leaderboard">LEADERBOARD</Link>
+            <Link to="/profile" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-profile">PROFILE</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
               <Coins size={18} weight="bold" />
               {user?.wallet_balance?.toFixed(0) || '0'} CR
@@ -97,7 +99,8 @@ function Leaderboard() {
                 return (
                   <div
                     key={player.user_id}
-                    className={`grid grid-cols-12 gap-4 p-4 border-b border-[#262626] hover:bg-[#1A1A1A] transition-colors ${
+                    onClick={() => navigate(`/profile/${player.user_id}`)}
+                    className={`grid grid-cols-12 gap-4 p-4 border-b border-[#262626] hover:bg-[#1A1A1A] transition-colors cursor-pointer ${
                       isCurrentUser ? 'bg-[#FF3B30]/5' : ''
                     }`}
                     data-testid={`leaderboard-entry-${index}`}

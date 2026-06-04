@@ -1,0 +1,67 @@
+{
+  "summary": "Iteration 4 backend tests: 20/22 PASSED, 2 FAILED — both failures caused by a single backend route-ordering bug that completely breaks GET /api/users/search. All other new features (profile update + validation, /users/me/profile, /users/{id}, /countries, /platforms-list, POST /challenges with self/zero-stake/missing-opponent/missing-game/insufficient-balance guards, GET /challenges/incoming, private-tournament invite-only join enforcement, hiding private tournaments from public listing, last_active_at fire-and-forget update) work correctly. All 42 previous-iteration tests still pass.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/users/search",
+        "issue": "Route is completely broken — returns 404 'User not found' for every query (verified via curl as admin and via authenticated test sessions). Root cause: in /app/backend/server.py the dynamic route @api_router.get('/users/{user_id}') is declared at line 454, BEFORE the static route @api_router.get('/users/search') at line 464. FastAPI matches routes in declaration order, so any GET /users/search request is captured by /users/{user_id} with user_id='search', which fails ObjectId parsing and returns 404. Fix: move the /users/search route definition (and any other static /users/* routes) ABOVE the /users/{user_id} route. Also note /users/me/profile works only because it is declared at line 449 BEFORE /users/{user_id}.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PUT /api/users/profile",
+        "issue": "country is stored exactly as the client sends it (no uppercase normalization). However GET /api/users/search uppercases its country filter (`country.upper()`), so a user who set country='au' will never match a search for country='AU'. Recommend uppercasing country on write (or lowercasing on both sides) to keep storage consistent with the search filter."
+      },
+      {
+        "endpoint": "POST /api/challenges",
+        "issue": "Stake is deducted before tournament insert, but if the insert fails the deduction is not rolled back. Also there is no DB transaction wrapping the deduction + tournament insert + participant insert. Low risk in practice but worth flagging."
+      },
+      {
+        "endpoint": "GET /api/users/{user_id}",
+        "issue": "Returns the full _build_public_profile payload including wallet_balance for ANY authenticated viewer. Wallet balance arguably should not be exposed on a public profile — review whether to redact it for non-self lookups."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_profiles_challenges.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "FIX (critical): reorder routes in /app/backend/server.py so that all static /users/* routes (/users/profile, /users/me/profile, /users/search) are declared BEFORE the dynamic /users/{user_id} route. Currently /users/search is shadowed and returns 404 for every request.",
+    "Normalize country to uppercase on PUT /api/users/profile to align with the uppercase comparison in /api/users/search.",
+    "Consider not returning wallet_balance from GET /api/users/{user_id} (public profile of another user).",
+    "Consider refactoring /api/users/search to a POST or to fix route ordering — and add an integration test that asserts /api/users/search returns 200 with a list when called by any authenticated user."
+  ],
+  "critical_code_review_comments": [
+    "Route-ordering bug (above) completely disables user search — this is the only blocker.",
+    "server.py is now ~1370 lines and continues to grow (profiles, challenges, search added). Strongly recommend splitting into routers/ modules (auth, users, tournaments, evidence, latency, wallet, challenges) before further iterations.",
+    "last_active_at update uses asyncio.create_task on a coroutine result inside a sync try/except; the task is fire-and-forget and never awaited or logged, so update failures will silently disappear. Consider logging exceptions from the task with task.add_done_callback.",
+    "/api/users/search runs an unbounded $regex on username AND bio with user-supplied q — case-insensitive regex on free text is a performance and ReDoS risk on a growing user collection. Sanitize/escape q (re.escape) and add an index, or switch to text index.",
+    "_build_public_profile is called inside a per-user for-loop in search → N additional DB queries per result for preferred_games. For 50 results this is up to 50*N queries. Batch fetch games with $in once.",
+    "PUT /api/users/profile validates preferred_game_ids one-by-one in a loop with individual find_one queries. Use one find with {_id: {$in: [...]}} and compare set sizes.",
+    "POST /api/challenges: tournament_doc lacks 'updated_at' and the participants doc reuses 'pending' as result_status but server.py elsewhere has no consistent enum — consider documenting status state machine.",
+    "GET /api/users/{user_id} returns wallet_balance to any authenticated viewer; this is real-money-equivalent info even in play-money mode.",
+    "Search filter 'online_only' uses ISO-string comparison to a threshold. This works because ISO 8601 with fixed offsets sorts lexicographically, but only if every record uses the same offset format. last_active_at is written with datetime.now(timezone.utc).isoformat() (always +00:00), so OK today — but document this invariant."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_profiles_challenges.py (new, 22 test cases)"
+  ],
+  "success_rate": {
+    "backend": "90.9% iter4 (20/22) + 100% legacy (42/42) = 95.5% overall (62/65)",
+    "frontend": "not tested per request (testing_type=backend only)"
+  },
+  "test_credentials": "Admin admin@esportsbet.com / admin123 verified working. Iteration-4 tests register fresh TEST_ users per scenario and seed wallets via direct pymongo update.",
+  "seed_data_creation": "Tests create TEST_-prefixed users + TEST_ games per scenario. last_active_at is forced via pymongo for the stale-user search assertion. No production data modified.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After the route-ordering fix in server.py, simply re-run `python -m pytest /app/backend/tests/test_iter4_profiles_challenges.py -v` — the two failing tests (TestUserSearch::test_search_excludes_self_and_filters and TestUserSearch::test_search_online_only) will pass. All 22 iter4 tests + 42 legacy tests should then be green. The legacy suite (/app/backend/tests/backend_test.py + test_new_features.py) is unaffected by this iteration and was re-verified green (42/42).",
+  "rca of the issue": "BUG: GET /api/users/search returns 404 'User not found' for every request. REPRODUCTION: 1) Login as any user. 2) curl -b cookies.txt 'https://esports-bet-3.preview.emergentagent.com/api/users/search?country=AU' → 404 {'detail':'User not found'}. ROOT CAUSE: In /app/backend/server.py the dynamic route @api_router.get('/users/{user_id}', line 454) is registered before the static route @api_router.get('/users/search', line 464). FastAPI/Starlette matches routes in registration order, so /users/search is routed into get_user_profile(user_id='search'), which fails ObjectId parsing and returns 404. MITIGATION: Move the /users/search definition (and any future static /users/* endpoints) above the @api_router.get('/users/{user_id}') definition. /users/me/profile is unaffected because it is declared BEFORE /users/{user_id}."
+}

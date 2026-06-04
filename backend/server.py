@@ -71,6 +71,14 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Update last_active_at (fire and forget — don't block request)
+        try:
+            asyncio.create_task(db.users.update_one(
+                {"_id": ObjectId(payload["sub"])},
+                {"$set": {"last_active_at": datetime.now(timezone.utc).isoformat()}}
+            ))
+        except Exception:
+            pass
         user["id"] = str(user["_id"])
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
@@ -155,6 +163,45 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+# === PROFILE MODELS ===
+class ProfileUpdate(BaseModel):
+    bio: Optional[str] = None
+    country: Optional[str] = None       # ISO 2-letter code, e.g., "AU"
+    city: Optional[str] = None
+    timezone: Optional[str] = None      # IANA name, e.g., "Australia/Sydney"
+    platforms: Optional[List[str]] = None  # ["ps5","xbox_series","pc",...]
+    gamertags: Optional[Dict[str, str]] = None  # {"psn":"...","xbox":"...","steam":"..."}
+    preferred_game_ids: Optional[List[str]] = None
+    stake_min: Optional[float] = None
+    stake_max: Optional[float] = None
+
+class PublicProfileResponse(BaseModel):
+    id: str
+    username: str
+    bio: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    timezone: Optional[str] = None
+    platforms: List[str] = []
+    gamertags: Dict[str, str] = {}
+    preferred_game_ids: List[str] = []
+    preferred_games: List[Dict[str, str]] = []  # populated [{id,name,platform}]
+    stake_min: Optional[float] = None
+    stake_max: Optional[float] = None
+    total_wins: int
+    total_losses: int
+    wallet_balance: float
+    last_active_at: Optional[str] = None
+    created_at: str
+
+# === CHALLENGE / PRIVATE TOURNAMENT ===
+class ChallengeCreate(BaseModel):
+    opponent_user_id: str
+    game_id: str
+    stake_amount: float
+    start_time: str
+
 
 # Auth endpoints
 @api_router.post("/auth/register", response_model=UserResponse)
@@ -332,6 +379,256 @@ async def reset_password(req: ResetPasswordRequest):
     
     return {"message": "Password reset successfully"}
 
+# === PROFILE & PLAYER SEARCH ===
+async def _build_public_profile(user_doc) -> dict:
+    """Convert user doc to public profile dict, populating preferred_games."""
+    preferred_ids = user_doc.get("preferred_game_ids") or []
+    preferred_games = []
+    for gid in preferred_ids:
+        try:
+            g = await db.games.find_one({"_id": ObjectId(gid)})
+            if g:
+                preferred_games.append({"id": str(g["_id"]), "name": g["name"], "platform": g["platform"]})
+        except Exception:
+            continue
+    return {
+        "id": str(user_doc["_id"]),
+        "username": user_doc["username"],
+        "bio": user_doc.get("bio"),
+        "country": user_doc.get("country"),
+        "city": user_doc.get("city"),
+        "timezone": user_doc.get("timezone"),
+        "platforms": user_doc.get("platforms") or [],
+        "gamertags": user_doc.get("gamertags") or {},
+        "preferred_game_ids": preferred_ids,
+        "preferred_games": preferred_games,
+        "stake_min": user_doc.get("stake_min"),
+        "stake_max": user_doc.get("stake_max"),
+        "total_wins": user_doc.get("total_wins", 0),
+        "total_losses": user_doc.get("total_losses", 0),
+        "wallet_balance": user_doc.get("wallet_balance", 0.0),
+        "last_active_at": user_doc.get("last_active_at"),
+        "created_at": user_doc["created_at"],
+    }
+
+@api_router.put("/users/profile", response_model=PublicProfileResponse)
+async def update_profile(profile_data: ProfileUpdate, user: dict = Depends(get_current_user)):
+    """Update the current user's profile."""
+    update_fields = {k: v for k, v in profile_data.model_dump(exclude_unset=True).items() if v is not None}
+    
+    # Validate stake range
+    if update_fields.get("stake_min") is not None and update_fields.get("stake_max") is not None:
+        if update_fields["stake_min"] > update_fields["stake_max"]:
+            raise HTTPException(status_code=400, detail="stake_min cannot be greater than stake_max")
+    
+    # Validate platforms
+    valid_platforms = {"ps5", "ps4", "xbox_series", "xbox_one", "pc", "switch", "mobile"}
+    if "platforms" in update_fields:
+        invalid = set(update_fields["platforms"]) - valid_platforms
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Invalid platforms: {invalid}")
+    
+    # Validate preferred games
+    if "preferred_game_ids" in update_fields:
+        for gid in update_fields["preferred_game_ids"]:
+            try:
+                exists = await db.games.find_one({"_id": ObjectId(gid)}, {"_id": 1})
+                if not exists:
+                    raise HTTPException(status_code=400, detail=f"Game {gid} does not exist")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Invalid game id: {gid}")
+    
+    if update_fields:
+        await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": update_fields})
+    
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    return await _build_public_profile(user_doc)
+
+@api_router.get("/users/me/profile", response_model=PublicProfileResponse)
+async def get_my_profile(user: dict = Depends(get_current_user)):
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    return await _build_public_profile(user_doc)
+
+@api_router.get("/users/{user_id}", response_model=PublicProfileResponse)
+async def get_user_profile(user_id: str, current: dict = Depends(get_current_user)):
+    try:
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await _build_public_profile(user_doc)
+
+@api_router.get("/users/search")
+async def search_users(
+    q: Optional[str] = None,
+    game_id: Optional[str] = None,
+    country: Optional[str] = None,
+    platform: Optional[str] = None,
+    stake_min: Optional[float] = None,
+    stake_max: Optional[float] = None,
+    min_wins: Optional[int] = None,
+    online_only: bool = False,
+    limit: int = 50,
+    current: dict = Depends(get_current_user)
+):
+    """Search players with filters. All filters AND together."""
+    query: Dict[str, Any] = {"_id": {"$ne": ObjectId(current["id"])}}  # exclude self
+    
+    if q:
+        query["$or"] = [
+            {"username": {"$regex": q, "$options": "i"}},
+            {"bio": {"$regex": q, "$options": "i"}},
+        ]
+    if game_id:
+        query["preferred_game_ids"] = game_id
+    if country:
+        query["country"] = country.upper()
+    if platform:
+        query["platforms"] = platform
+    if min_wins is not None:
+        query["total_wins"] = {"$gte": min_wins}
+    if stake_min is not None or stake_max is not None:
+        # Player's range must overlap with requested range
+        s_min = stake_min if stake_min is not None else 0
+        s_max = stake_max if stake_max is not None else 10**9
+        # Overlap: player.stake_min <= s_max AND player.stake_max >= s_min
+        query["$and"] = query.get("$and", []) + [
+            {"$or": [{"stake_min": {"$lte": s_max}}, {"stake_min": {"$exists": False}}]},
+            {"$or": [{"stake_max": {"$gte": s_min}}, {"stake_max": {"$exists": False}}]},
+        ]
+    if online_only:
+        threshold = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        query["last_active_at"] = {"$gte": threshold}
+    
+    users = await db.users.find(query).limit(limit).to_list(limit)
+    online_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    
+    results = []
+    for u in users:
+        profile = await _build_public_profile(u)
+        profile["is_online"] = bool(profile.get("last_active_at") and profile["last_active_at"] >= online_cutoff)
+        results.append(profile)
+    return results
+
+@api_router.get("/countries")
+async def list_countries():
+    """List of common gaming countries (ISO 2-letter codes + names)."""
+    return [
+        {"code": "AU", "name": "Australia"}, {"code": "US", "name": "United States"},
+        {"code": "GB", "name": "United Kingdom"}, {"code": "CA", "name": "Canada"},
+        {"code": "NZ", "name": "New Zealand"}, {"code": "DE", "name": "Germany"},
+        {"code": "FR", "name": "France"}, {"code": "ES", "name": "Spain"},
+        {"code": "IT", "name": "Italy"}, {"code": "JP", "name": "Japan"},
+        {"code": "KR", "name": "South Korea"}, {"code": "BR", "name": "Brazil"},
+        {"code": "MX", "name": "Mexico"}, {"code": "AR", "name": "Argentina"},
+        {"code": "IN", "name": "India"}, {"code": "ZA", "name": "South Africa"},
+        {"code": "NL", "name": "Netherlands"}, {"code": "SE", "name": "Sweden"},
+        {"code": "NO", "name": "Norway"}, {"code": "DK", "name": "Denmark"},
+        {"code": "FI", "name": "Finland"}, {"code": "IE", "name": "Ireland"},
+        {"code": "PL", "name": "Poland"}, {"code": "RU", "name": "Russia"},
+        {"code": "TR", "name": "Turkey"}, {"code": "AE", "name": "UAE"},
+        {"code": "SG", "name": "Singapore"}, {"code": "PH", "name": "Philippines"},
+        {"code": "ID", "name": "Indonesia"}, {"code": "MY", "name": "Malaysia"},
+        {"code": "TH", "name": "Thailand"}, {"code": "VN", "name": "Vietnam"},
+        {"code": "CN", "name": "China"}, {"code": "HK", "name": "Hong Kong"},
+        {"code": "TW", "name": "Taiwan"}, {"code": "OTHER", "name": "Other"},
+    ]
+
+@api_router.get("/platforms-list")
+async def platforms_list():
+    return [
+        {"code": "ps5", "name": "PlayStation 5"},
+        {"code": "ps4", "name": "PlayStation 4"},
+        {"code": "xbox_series", "name": "Xbox Series X/S"},
+        {"code": "xbox_one", "name": "Xbox One"},
+        {"code": "pc", "name": "PC"},
+        {"code": "switch", "name": "Nintendo Switch"},
+        {"code": "mobile", "name": "Mobile"},
+    ]
+
+@api_router.post("/challenges")
+async def create_challenge(challenge: ChallengeCreate, user: dict = Depends(get_current_user)):
+    """Create a private 1v1 tournament invite for a specific opponent."""
+    if challenge.opponent_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot challenge yourself")
+    if challenge.stake_amount <= 0:
+        raise HTTPException(status_code=400, detail="Stake amount must be greater than 0")
+    
+    opponent = await db.users.find_one({"_id": ObjectId(challenge.opponent_user_id)})
+    if not opponent:
+        raise HTTPException(status_code=404, detail="Opponent not found")
+    
+    game = await db.games.find_one({"_id": ObjectId(challenge.game_id)})
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    user_data = await db.users.find_one({"_id": ObjectId(user["id"])})
+    if user_data.get("wallet_balance", 0.0) < challenge.stake_amount:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$inc": {"wallet_balance": -challenge.stake_amount}})
+    
+    tournament_doc = {
+        "game_id": challenge.game_id,
+        "creator_id": user["id"],
+        "stake_amount": challenge.stake_amount,
+        "status": "open",
+        "max_players": 2,
+        "current_players": 1,
+        "winner_id": None,
+        "start_time": challenge.start_time,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_private": True,
+        "invited_user_ids": [challenge.opponent_user_id],
+    }
+    result = await db.tournaments.insert_one(tournament_doc)
+    
+    await db.tournament_participants.insert_one({
+        "tournament_id": str(result.inserted_id),
+        "user_id": user["id"],
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+        "result_status": "pending"
+    })
+    
+    return {
+        "tournament_id": str(result.inserted_id),
+        "opponent_username": opponent["username"],
+        "stake_amount": challenge.stake_amount,
+        "message": f"Challenge sent to {opponent['username']}"
+    }
+
+@api_router.get("/challenges/incoming")
+async def get_incoming_challenges(user: dict = Depends(get_current_user)):
+    """Get private tournaments where current user is invited but hasn't joined yet."""
+    # Find private tournaments where user is invited
+    tournaments = await db.tournaments.find({
+        "is_private": True,
+        "invited_user_ids": user["id"],
+        "status": "open"
+    }).to_list(100)
+    
+    results = []
+    for t in tournaments:
+        # Skip if user already joined
+        joined = await db.tournament_participants.find_one({"tournament_id": str(t["_id"]), "user_id": user["id"]})
+        if joined:
+            continue
+        game = await db.games.find_one({"_id": ObjectId(t["game_id"])})
+        creator = await db.users.find_one({"_id": ObjectId(t["creator_id"])})
+        results.append({
+            "tournament_id": str(t["_id"]),
+            "game_name": game["name"] if game else "Unknown",
+            "game_platform": game["platform"] if game else "Unknown",
+            "challenger_username": creator["username"] if creator else "Unknown",
+            "stake_amount": t["stake_amount"],
+            "start_time": t["start_time"],
+            "created_at": t["created_at"],
+        })
+    return results
+
 # Game endpoints
 @api_router.post("/games", response_model=GameResponse)
 async def create_game(game_data: GameCreate, user: dict = Depends(get_current_user)):
@@ -416,7 +713,7 @@ async def create_tournament(tournament_data: TournamentCreate, user: dict = Depe
     )
 
 @api_router.get("/tournaments", response_model=List[TournamentResponse])
-async def get_tournaments(status: Optional[str] = None):
+async def get_tournaments(status: Optional[str] = None, current: dict = Depends(get_current_user)):
     query = {}
     if status:
         query["status"] = status
@@ -425,6 +722,10 @@ async def get_tournaments(status: Optional[str] = None):
     result = []
     
     for t in tournaments:
+        # Hide private tournaments from non-invitees (unless they're the creator)
+        if t.get("is_private"):
+            if current["id"] != t["creator_id"] and current["id"] not in (t.get("invited_user_ids") or []):
+                continue
         game = await db.games.find_one({"_id": ObjectId(t["game_id"])})
         creator = await db.users.find_one({"_id": ObjectId(t["creator_id"])})
         result.append(TournamentResponse(
@@ -455,6 +756,11 @@ async def join_tournament(tournament_id: str, user: dict = Depends(get_current_u
     
     if tournament["current_players"] >= tournament["max_players"]:
         raise HTTPException(status_code=400, detail="Tournament is full")
+    
+    # If private tournament, must be invited
+    if tournament.get("is_private"):
+        if user["id"] != tournament["creator_id"] and user["id"] not in (tournament.get("invited_user_ids") or []):
+            raise HTTPException(status_code=403, detail="This is a private tournament — you must be invited")
     
     # Check if already joined
     existing = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user["id"]})
