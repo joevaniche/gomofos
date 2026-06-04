@@ -175,3 +175,28 @@
 - `/app/frontend/src/pages/TournamentDetails.js` (latency thresholds, in-match banners, dispute latency-advantage callout)
 - `/app/backend/tests/test_iter8_latency_email.py` (NEW, 9 cases)
 
+
+## Iteration 9: One-click Decline & Refund (June 4, 2026)
+### Done
+- **`create_decline_token`** — signed JWT (HS256, 7-day expiry) embedding `{tid, uid, type:'decline_challenge'}` so the email link is self-authenticated without requiring login.
+- **`GET /api/challenges/decline?token=...`** (mounted on `app`, not `api_router`, with literal `/api/` prefix) — public HTML page that:
+  - Validates the token (handles expired, invalid, wrong-uid)
+  - Refunds every participant who had paid into the tournament (in practice just the challenger, since the invitee never commits a stake at invite time)
+  - Flips tournament `status: 'declined'`, stamps `declined_by` + `declined_at` + `refunded_user_ids`
+  - Is **idempotent** — second click on the same token shows "Already declined" without double-refunding
+  - Renders a branded GoMofos confirmation page with the actual refunded amount
+- **`POST /api/challenges/{id}/decline`** (authenticated) — in-app version for the Dashboard button, enforces `user.id ∈ invited_user_ids` or 403
+- **Email template update** — `send_match_invite` now renders a **dual CTA block**: red `ACCEPT CHALLENGE` + outlined `DECLINE & REFUND`. Plain-text email also includes both URLs. Footer copy updated to clarify "Declining refunds X CR to the challenger's wallet — you haven't paid anything yet."
+- **Dashboard challenge cards** — each `incoming-challenges` card now has `accept-challenge-{id}` (red, navigates) + `decline-challenge-{id}` (outlined, window.confirm → POST + toast + remove card + refresh wallet via `checkAuth`)
+
+### Verified
+- Backend pytest 12/12 PASS — valid token decline + refund, idempotency, invalid/expired/wrong-uid tokens, started-match no-refund, authenticated 403 for non-invitee, 404 for missing tournament, `/challenges/incoming` filter excludes declined
+- Frontend Playwright 5/5 PASS — both buttons rendered, confirm-cancel keeps card, confirm-accept fires POST + toast + state update, ACCEPT navigation works
+- No regressions on iterations 6–8 (branding, highlight reels, X share, SendGrid, latency tie-breaker)
+
+### Files touched
+- `/app/backend/server.py` (+~110 lines: `create_decline_token`, `_decline_challenge_core`, HTML endpoint, authenticated POST decline endpoint, refund count-based message)
+- `/app/backend/email_service.py` (dual CTA block + plain-text dual URL + accurate copy on refund target)
+- `/app/frontend/src/pages/Dashboard.js` (Accept/Decline buttons on each incoming-challenge card, window.confirm + decline POST + state + wallet refresh)
+- `/app/backend/tests/test_iter9_decline_refund.py` (NEW, 12 cases)
+
