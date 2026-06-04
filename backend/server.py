@@ -489,15 +489,16 @@ async def search_users(
     if stake_min is not None or stake_max is not None:
         s_min = stake_min if stake_min is not None else 0
         s_max = stake_max if stake_max is not None else 10**9
+        # Only match users who have set a stake range that overlaps
         query["$and"] = query.get("$and", []) + [
-            {"$or": [{"stake_min": {"$lte": s_max}}, {"stake_min": {"$exists": False}}]},
-            {"$or": [{"stake_max": {"$gte": s_min}}, {"stake_max": {"$exists": False}}]},
+            {"stake_min": {"$lte": s_max}},
+            {"stake_max": {"$gte": s_min}},
         ]
     if online_only:
         threshold = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         query["last_active_at"] = {"$gte": threshold}
     
-    users = await db.users.find(query).limit(limit).to_list(limit)
+    users = await db.users.find(query).sort([("last_active_at", -1), ("created_at", -1)]).limit(limit).to_list(limit)
     online_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     
     results = []

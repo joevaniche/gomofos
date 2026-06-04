@@ -62,3 +62,23 @@
 - **Domain:** gomofos.com
 - **Server IP:** 192.168.0.124 (private LAN - requires Cloudflare Tunnel or port forwarding for public access)
 - **Deployment guide:** /app/DEPLOYMENT_GUIDE.md (3 deployment paths: LAN-only, Port Forwarding, Cloudflare Tunnel)
+
+## Iteration 4: Player Matchmaking System (Feb 28, 2026)
+### Done
+- Player profiles with: bio, country (ISO-2), city, timezone (IANA), platforms (PS5/PS4/Xbox/PC/Switch/Mobile), gamertags (PSN/Xbox/Steam/Epic/Battle.net/Nintendo/Riot/Activision), preferred games, stake range (min/max)
+- last_active_at auto-updated on every authed request → enables "Online now" status (<10 min threshold)
+- GET /api/users/search with filters: q (text), game_id, country, platform, stake_min/max overlap, min_wins, online_only
+- GET /api/countries (36), GET /api/platforms-list (7)
+- Direct 1v1 challenge: POST /api/challenges → creates private invite-only tournament with is_private=true and invited_user_ids
+- GET /api/challenges/incoming → shows pending challenges on dashboard
+- Private tournaments hidden from non-invitee public listing
+- Frontend: ProfileEdit, ProfileView, PlayerSearch pages + ChallengeModal component
+- Wallet balance hidden from other users' profile views
+- Tested: 64/64 backend tests passing
+
+### Backlog (deferred)
+- SendGrid email integration (paused — needs API key)
+- 48h auto-timeout dispute escalation emails
+- Public dispute history page
+- Latency threshold warnings (100ms warn, 200ms+ dispute weight)
+- Multi-admin promotion UI + .env ADMIN_EMAILS list
