@@ -230,8 +230,13 @@ function TournamentDetails() {
   const mySubmission = tournament?.participants?.find(p => p.user_id === user?.id)?.claimed_winner_id;
   const canSubmitResult = isParticipant && (tournament?.status === 'in_progress' || (tournament?.status === 'pending_confirmation' && !mySubmission));
 
-  const latencyColor = (ms) => ms == null ? '#525252' : ms < 60 ? '#22C55E' : ms < 150 ? '#F59E0B' : '#EF4444';
-  const LatencyIcon = currentLatency == null ? WifiLow : currentLatency < 60 ? WifiHigh : currentLatency < 150 ? WifiMedium : WifiLow;
+  // Latency policy (matches backend LATENCY_WARN_MS / LATENCY_HIGH_MS):
+  // <100ms = ok (green), 100-200ms = warn (yellow), >=200ms = high (red, dispute weighs against you)
+  const LATENCY_WARN_MS = 100;
+  const LATENCY_HIGH_MS = 200;
+  const latencyColor = (ms) => ms == null ? '#525252' : ms < LATENCY_WARN_MS ? '#22C55E' : ms < LATENCY_HIGH_MS ? '#F59E0B' : '#EF4444';
+  const LatencyIcon = currentLatency == null ? WifiLow : currentLatency < LATENCY_WARN_MS ? WifiHigh : currentLatency < LATENCY_HIGH_MS ? WifiMedium : WifiLow;
+  const latencyTier = currentLatency == null ? null : currentLatency < LATENCY_WARN_MS ? 'ok' : currentLatency < LATENCY_HIGH_MS ? 'warn' : 'high';
 
   const statusBadge = {
     open: { label: 'OPEN', color: '#22C55E' },
@@ -304,6 +309,30 @@ function TournamentDetails() {
                 )}
               </div>
 
+              {tournament?.status === 'in_progress' && isParticipant && latencyTier && latencyTier !== 'ok' && (
+                <div
+                  data-testid={`latency-banner-${latencyTier}`}
+                  className={`mb-4 p-3 border flex items-start gap-3 ${
+                    latencyTier === 'warn'
+                      ? 'bg-[#F59E0B]/10 border-[#F59E0B] text-[#F59E0B]'
+                      : 'bg-[#EF4444]/10 border-[#EF4444] text-[#EF4444]'
+                  }`}
+                >
+                  <ShieldWarning size={20} weight="duotone" />
+                  <div className="text-xs leading-relaxed">
+                    {latencyTier === 'warn' ? (
+                      <>
+                        <strong>Connection unstable ({currentLatency}ms).</strong> If a dispute is opened on this match, your latency will be reviewed and may weigh against you.
+                      </>
+                    ) : (
+                      <>
+                        <strong>HIGH LATENCY ({currentLatency}ms).</strong> The match continues, but if it goes to dispute the lower-latency player wins the tie-breaker by default. Switch networks if you can.
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {canJoin && (
                 <button data-testid="join-tournament-btn" onClick={handleJoin} disabled={joining} className="w-full px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors disabled:opacity-50">
                   {joining ? 'JOINING...' : `JOIN FOR ${tournament?.stake_amount} CR`}
@@ -351,6 +380,27 @@ function TournamentDetails() {
                     <p className="text-sm font-bold text-white">DISPUTE OPEN</p>
                   </div>
                   <p className="text-xs text-[#A3A3A3]">Players disagreed on the winner. Upload screenshot evidence below. An admin will review and resolve.</p>
+                  {tournament?.latency_advantage?.advantage_user_id && (
+                    <div className="mt-3 pt-3 border-t border-[#EF4444]/30" data-testid="latency-advantage-callout">
+                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">LATENCY TIE-BREAKER</p>
+                      <p className="text-sm text-white">
+                        <span className="font-bold text-[#22C55E]">
+                          {tournament.participants.find(p => p.user_id === tournament.latency_advantage.advantage_user_id)?.username || 'A player'}
+                        </span>{' '}
+                        has the lower-latency advantage and wins ties if evidence is inconclusive.
+                      </p>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {tournament.latency_advantage.breakdown?.map(b => (
+                          <div key={b.user_id} className="text-xs p-2 bg-[#0A0A0A] border border-[#262626]">
+                            <p className="font-bold text-white">{b.username}</p>
+                            <p style={{ color: b.status === 'high' ? '#EF4444' : b.status === 'warn' ? '#F59E0B' : '#22C55E' }}>
+                              avg {b.avg_ms}ms · peak {b.max_ms}ms · {b.sample_count} samples
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

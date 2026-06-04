@@ -22,6 +22,8 @@ import requests
 import asyncio
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
 
+from email_service import send_match_invite, send_dispute_alert
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -605,7 +607,19 @@ async def create_challenge(challenge: ChallengeCreate, user: dict = Depends(get_
         "joined_at": datetime.now(timezone.utc).isoformat(),
         "result_status": "pending"
     })
-    
+
+    # Fire-and-forget challenge email to the opponent (skipped if SendGrid not configured)
+    if opponent.get("email"):
+        asyncio.create_task(send_match_invite(
+            to_email=opponent["email"],
+            opponent_username=opponent.get("username", "Mofo"),
+            challenger_username=user_data.get("username", "A challenger"),
+            game_name=game.get("name", "the game"),
+            stake_amount=float(challenge.stake_amount),
+            tournament_id=str(result.inserted_id),
+            app_url=os.environ.get("FRONTEND_URL", "https://gomofos.com"),
+        ))
+
     return {
         "tournament_id": str(result.inserted_id),
         "opponent_username": opponent["username"],
@@ -937,12 +951,38 @@ async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict =
         winner_amount = await _award_winner_and_close(tournament_id, winner_id, "auto_agreement")
         return {"message": "Tournament completed (all players agreed)", "status": "completed", "winner_id": winner_id, "winner_amount": winner_amount}
     else:
-        # Dispute
+        # Dispute — capture latency tie-breaker advantage and notify the opponent(s) of the opener
+        advantage = await _compute_latency_advantage(tournament_id)
         await db.tournaments.update_one(
             {"_id": ObjectId(tournament_id)},
-            {"$set": {"status": "disputed", "disputed_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {
+                "status": "disputed",
+                "disputed_at": datetime.now(timezone.utc).isoformat(),
+                "latency_advantage": advantage,  # {user_id, avg_ms, breakdown} or None
+            }}
         )
-        return {"message": "Players disagreed on winner — dispute created", "status": "disputed"}
+        # Notify the OTHER participants that the current user just opened a dispute
+        opener_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+        opener_username = opener_doc.get("username", "An opponent") if opener_doc else "An opponent"
+        game = await db.games.find_one({"_id": ObjectId(tournament["game_id"])}) if tournament.get("game_id") else None
+        game_name = game["name"] if game else "your match"
+        pot = float(tournament.get("stake_amount", 0)) * len(all_participants)
+        app_url = os.environ.get("FRONTEND_URL", "https://gomofos.com")
+        for p in all_participants:
+            if p["user_id"] == user["id"]:
+                continue
+            opponent_doc = await db.users.find_one({"_id": ObjectId(p["user_id"])})
+            if opponent_doc and opponent_doc.get("email"):
+                asyncio.create_task(send_dispute_alert(
+                    to_email=opponent_doc["email"],
+                    opponent_username=opponent_doc.get("username", "Mofo"),
+                    opener_username=opener_username,
+                    game_name=game_name,
+                    stake_amount=pot,
+                    tournament_id=tournament_id,
+                    app_url=app_url,
+                ))
+        return {"message": "Players disagreed on winner — dispute created", "status": "disputed", "latency_advantage": advantage}
 
 @api_router.post("/tournaments/{tournament_id}/complete")
 async def complete_tournament(tournament_id: str, winner_user_id: str, user: dict = Depends(get_current_user)):
@@ -1007,7 +1047,8 @@ async def get_tournament_details(tournament_id: str):
         "completed_at": tournament.get("completed_at"),
         "resolution": tournament.get("resolution"),
         "created_at": tournament["created_at"],
-        "participants": participant_list
+        "participants": participant_list,
+        "latency_advantage": tournament.get("latency_advantage"),
     }
 
 # ============ EVIDENCE (Screenshots) ============
@@ -1351,6 +1392,78 @@ async def record_latency(tournament_id: str, latency_ms: float, user: dict = Dep
     })
     return {"recorded": True}
 
+
+# Latency policy thresholds (single source of truth for backend + dispute logic)
+LATENCY_WARN_MS = 100
+LATENCY_HIGH_MS = 200
+
+
+async def _compute_latency_advantage(tournament_id: str):
+    """Aggregate latency samples per participant and return a dispute-tie-breaker payload.
+
+    Result shape:
+      {
+        "advantage_user_id": <str or None>,   # lower-latency player (winner of tie-break)
+        "policy": "lower_avg_ms_wins_ties",
+        "breakdown": [
+            {"user_id", "username", "avg_ms", "max_ms", "sample_count", "status"},
+            ...
+        ],
+      }
+    A player is only considered for advantage if they have at least 3 samples.
+    """
+    samples = await db.tournament_latency.find({"tournament_id": tournament_id}).to_list(10000)
+    if not samples:
+        return {"advantage_user_id": None, "policy": "lower_avg_ms_wins_ties", "breakdown": []}
+
+    by_user: Dict[str, list] = {}
+    for s in samples:
+        by_user.setdefault(s["user_id"], []).append(float(s["latency_ms"]))
+
+    breakdown = []
+    for uid, vals in by_user.items():
+        avg = sum(vals) / len(vals)
+        peak = max(vals)
+        if peak >= LATENCY_HIGH_MS:
+            status = "high"
+        elif avg >= LATENCY_WARN_MS:
+            status = "warn"
+        else:
+            status = "ok"
+        u = await db.users.find_one({"_id": ObjectId(uid)})
+        breakdown.append({
+            "user_id": uid,
+            "username": u.get("username") if u else "Unknown",
+            "avg_ms": round(avg, 1),
+            "max_ms": round(peak, 1),
+            "sample_count": len(vals),
+            "status": status,
+        })
+
+    eligible = [b for b in breakdown if b["sample_count"] >= 3]
+    advantage_user_id = None
+    if len(eligible) >= 2:
+        # Lower avg wins the tie-break; if anyone is "high", the OTHER side wins by default.
+        high_players = [b for b in eligible if b["status"] == "high"]
+        low_players = [b for b in eligible if b["status"] != "high"]
+        if high_players and low_players and len(high_players) < len(eligible):
+            # Pick the best (lowest-avg) non-high player as the tie-break beneficiary
+            advantage_user_id = min(low_players, key=lambda b: b["avg_ms"])["user_id"]
+        else:
+            advantage_user_id = min(eligible, key=lambda b: b["avg_ms"])["user_id"]
+
+    return {"advantage_user_id": advantage_user_id, "policy": "lower_avg_ms_wins_ties", "breakdown": breakdown}
+
+
+@api_router.get("/tournaments/{tournament_id}/latency-advantage")
+async def get_latency_advantage(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Return the per-tournament latency tie-breaker payload (used by admins reviewing disputes)."""
+    participant = await db.tournament_participants.find_one({"tournament_id": tournament_id, "user_id": user["id"]})
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    if not participant and (not user_doc or user_doc.get("role") != "admin"):
+        raise HTTPException(status_code=403, detail="Only participants or admins can view this")
+    return await _compute_latency_advantage(tournament_id)
+
 @api_router.get("/tournaments/{tournament_id}/latency")
 async def get_latency_history(tournament_id: str, user: dict = Depends(get_current_user)):
     """Get latency timeline for all participants of a tournament (for dispute review)."""
@@ -1637,6 +1750,7 @@ async def startup_event():
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
     await db.highlight_reels.create_index([("user_id", 1), ("created_at", -1)])
     await db.highlight_reels.create_index("id", unique=True)
+    await db.tournament_latency.create_index([("tournament_id", 1), ("user_id", 1), ("timestamp", 1)])
     
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@esportsbet.com")
