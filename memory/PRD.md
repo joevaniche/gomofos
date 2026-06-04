@@ -82,3 +82,30 @@
 - Public dispute history page
 - Latency threshold warnings (100ms warn, 200ms+ dispute weight)
 - Multi-admin promotion UI + .env ADMIN_EMAILS list
+
+
+## Iteration 6: Custom Branding Rollout (June 4, 2026)
+### Done
+- Replaced default branding with user-supplied Gomofos assets: `/public/gomofos-logo.png`, `/public/gomofos-bg.mp4`, `/public/gomofos-bg-poster.jpg`
+- Global `<BackgroundVideo />` mounted once at App.js level (z-index -10, 35% opacity, dark gradient overlay) — exactly one `<video>` element per route, verified across 9 routes
+- `<Logo />` component (link to `/`, `data-testid="site-logo"`) added to every page including auth pages (Login/Register now show `<Logo size="large" />` centered above the form)
+- Landing page hero: "GAME ON MOFOS!" tagline + staggered reveal of `STAKE.` / `COMPETE.` / `DOMINATE.` words using refs + setTimeout (delays 100/600/1600/2600/3400ms) with 0.8s opacity+transform CSS transition
+- Description paragraph + "START COMPETING" CTA fade in after the headline words
+- All page backgrounds set to semi-transparent so the video shows through (`body { background: transparent !important }`)
+
+### Verified
+- Frontend testing agent passed 10/10 assertions: logo present, exactly 1 video per page, hero animation reaches opacity 1 within 5s, registration → /dashboard with 1000 CR balance, admin login + traversal of /dashboard, /games, /wallet, /leaderboard, /players, /profile, /create-tournament
+
+### Known Non-Blocking Console Warning
+- `/create-tournament` emits a React hydration warning `<span> cannot be a child of <option>` — likely from a dev-time instrumentation wrapper around the game name. Does not affect functionality. Defer fix.
+
+## Backlog (after branding)
+### P1
+- SendGrid email notifications (dispute alerts, match invites) — needs API key from user
+- Auto-timeout disputes after 48h with admin escalation email
+- Latency threshold enforcement (>100ms warn, >200ms block/dispute risk)
+
+### P2
+- Public dispute history page for trust
+- Auto-fill missing game covers via IGDB API
+- Refactor monolithic `/app/backend/server.py` (~1,500 lines) into modular routes
