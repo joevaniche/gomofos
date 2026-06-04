@@ -113,12 +113,14 @@ class GameCreate(BaseModel):
     name: str
     platform: str
     image_url: Optional[str] = None
+    category: Optional[str] = None
 
 class GameResponse(BaseModel):
     id: str
     name: str
     platform: str
     image_url: Optional[str]
+    category: Optional[str] = None
     created_at: str
 
 class TournamentCreate(BaseModel):
@@ -647,6 +649,7 @@ async def create_game(game_data: GameCreate, user: dict = Depends(get_current_us
         "name": game_data.name,
         "platform": game_data.platform,
         "image_url": game_data.image_url,
+        "category": game_data.category,
         "created_by": user["id"],
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -656,19 +659,77 @@ async def create_game(game_data: GameCreate, user: dict = Depends(get_current_us
         name=game_doc["name"],
         platform=game_doc["platform"],
         image_url=game_doc["image_url"],
+        category=game_doc.get("category"),
         created_at=game_doc["created_at"]
     )
 
 @api_router.get("/games", response_model=List[GameResponse])
-async def get_games():
-    games = await db.games.find({}, {"_id": 1, "name": 1, "platform": 1, "image_url": 1, "created_at": 1}).to_list(1000)
+async def get_games(q: Optional[str] = None, category: Optional[str] = None):
+    query: Dict[str, Any] = {}
+    if q:
+        import re
+        q_safe = re.escape(q)
+        query["name"] = {"$regex": q_safe, "$options": "i"}
+    if category:
+        query["category"] = category
+    games = await db.games.find(query).sort("name", 1).to_list(2000)
     return [GameResponse(
         id=str(g["_id"]),
         name=g["name"],
         platform=g["platform"],
         image_url=g.get("image_url"),
+        category=g.get("category"),
         created_at=g["created_at"]
     ) for g in games]
+
+@api_router.get("/games/categories")
+async def list_game_categories():
+    """Distinct list of game categories currently in the catalog."""
+    cats = await db.games.distinct("category")
+    return sorted([c for c in cats if c])
+
+@api_router.post("/admin/seed-games")
+async def admin_seed_games(user: dict = Depends(get_current_user)):
+    """Admin-only: bulk-insert the curated top games catalog. Skips games already present (matched by name, case-insensitive)."""
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    if user_doc.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from games_data import TOP_GAMES
+    
+    # Build set of existing game names (lowercased) once
+    existing = await db.games.find({}, {"name": 1}).to_list(5000)
+    existing_lower = {g["name"].lower() for g in existing}
+    
+    inserted = 0
+    skipped = 0
+    docs_to_insert = []
+    now = datetime.now(timezone.utc).isoformat()
+    
+    for g in TOP_GAMES:
+        if g["name"].lower() in existing_lower:
+            skipped += 1
+            continue
+        docs_to_insert.append({
+            "name": g["name"],
+            "platform": g["platform"],
+            "image_url": g.get("image_url"),
+            "category": g.get("category"),
+            "created_by": user["id"],
+            "created_at": now,
+        })
+        existing_lower.add(g["name"].lower())
+    
+    if docs_to_insert:
+        result = await db.games.insert_many(docs_to_insert)
+        inserted = len(result.inserted_ids)
+    
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "total_in_catalog": len(TOP_GAMES),
+        "message": f"Added {inserted} new games. Skipped {skipped} duplicates."
+    }
 
 # Tournament endpoints
 @api_router.post("/tournaments", response_model=TournamentResponse)
