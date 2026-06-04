@@ -60,3 +60,18 @@ h1, h2, h3, h4, h5, h6 {
         text-wrap: balance;
     }
 }
+
+@keyframes wordReveal {
+    0% { opacity: 0; transform: translateY(20px) scale(0.95); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.word-reveal {
+    opacity: 0;
+    animation: wordReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Make page backgrounds semi-transparent so video shows through */
+body {
+    background: transparent !important;
+}

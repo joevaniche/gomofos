@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -69,11 +70,11 @@ function Wallet() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
+    <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -100,7 +101,7 @@ function Wallet() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Balance + Daily Bonus Card */}
-          <div className="border border-[#262626] bg-[#141414] p-8" data-testid="balance-card">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-8" data-testid="balance-card">
             <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-2">CURRENT BALANCE</p>
             <div className="flex items-baseline gap-2 mb-8">
               <Coins size={48} weight="duotone" className="text-[#F59E0B]" />
@@ -147,7 +148,7 @@ function Wallet() {
           </div>
 
           {/* Transaction History */}
-          <div className="border border-[#262626] bg-[#141414] p-6" data-testid="transaction-history">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="transaction-history">
             <h3 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>TRANSACTION HISTORY</h3>
 
             {transactions.length === 0 ? (

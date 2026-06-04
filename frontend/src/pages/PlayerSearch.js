@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -70,10 +71,10 @@ function PlayerSearch() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+    <div className="min-h-screen">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-players">PLAYERS</Link>
@@ -96,7 +97,7 @@ function PlayerSearch() {
         </div>
 
         {/* Filters */}
-        <form onSubmit={handleSubmit} className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="search-filters">
+        <form onSubmit={handleSubmit} className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="search-filters">
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
             <div className="lg:col-span-2">
               <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">SEARCH</label>
@@ -179,7 +180,7 @@ function PlayerSearch() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {players.map(p => (
                 <div key={p.id} onClick={() => navigate(`/profile/${p.id}`)}
-                  className="border border-[#262626] bg-[#141414] p-5 hover:border-[#3F3F3F] transition-all cursor-pointer"
+                  className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-5 hover:border-[#3F3F3F] transition-all cursor-pointer"
                   data-testid={`player-card-${p.id}`}>
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">

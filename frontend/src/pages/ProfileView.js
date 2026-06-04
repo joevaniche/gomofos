@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -148,7 +149,7 @@ function ProfileView() {
     return code.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt()));
   };
 
-  if (loading) return <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center"><p className="text-white">Loading...</p></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><p className="text-white">Loading...</p></div>;
 
   const isOwnProfile = profile.id === user.id;
   const winRate = (profile.total_wins + profile.total_losses) > 0 ? Math.round(profile.total_wins / (profile.total_wins + profile.total_losses) * 100) : 0;
@@ -157,10 +158,10 @@ function ProfileView() {
   const hasGamertags = profile.gamertags && Object.values(profile.gamertags).some(v => v);
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+    <div className="min-h-screen">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -178,7 +179,7 @@ function ProfileView() {
 
       <div className="max-w-5xl mx-auto p-6">
         {/* Header */}
-        <div className="border border-[#262626] bg-[#141414] p-6 mb-6">
+        <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-4">
               <div className="w-20 h-20 bg-[#0A0A0A] border border-[#262626] flex items-center justify-center">
@@ -219,16 +220,16 @@ function ProfileView() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="border border-[#262626] bg-[#141414] p-6 text-center" data-testid="stat-wins">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 text-center" data-testid="stat-wins">
             <Trophy size={28} weight="duotone" className="text-[#22C55E] mx-auto mb-2" />
             <p className="text-3xl font-black" style={{fontFamily: 'Chivo'}}>{profile.total_wins}</p>
             <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mt-1">WINS</p>
           </div>
-          <div className="border border-[#262626] bg-[#141414] p-6 text-center" data-testid="stat-losses">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 text-center" data-testid="stat-losses">
             <p className="text-3xl font-black mt-2" style={{fontFamily: 'Chivo'}}>{profile.total_losses}</p>
             <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mt-1">LOSSES</p>
           </div>
-          <div className="border border-[#262626] bg-[#141414] p-6 text-center" data-testid="stat-winrate">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 text-center" data-testid="stat-winrate">
             <p className="text-3xl font-black mt-2" style={{fontFamily: 'Chivo'}}>{winRate}%</p>
             <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mt-1">WIN RATE</p>
           </div>
@@ -236,7 +237,7 @@ function ProfileView() {
 
         {/* Stake range */}
         {(profile.stake_min || profile.stake_max) && (
-          <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="stake-range">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="stake-range">
             <div className="flex items-center gap-2 mb-2">
               <Coins size={20} weight="duotone" className="text-[#F59E0B]" />
               <h3 className="text-sm font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">PREFERRED STAKE RANGE</h3>
@@ -247,7 +248,7 @@ function ProfileView() {
 
         {/* Platforms */}
         {profile.platforms.length > 0 && (
-          <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="platforms-section">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="platforms-section">
             <h3 className="text-sm font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-3">PLATFORMS</h3>
             <div className="flex flex-wrap gap-2">
               {profile.platforms.map(p => (
@@ -259,7 +260,7 @@ function ProfileView() {
 
         {/* Gamertags */}
         {hasGamertags && (
-          <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="gamertags-section">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="gamertags-section">
             <h3 className="text-sm font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-3">GAMERTAGS</h3>
             <div className="grid grid-cols-2 gap-3">
               {Object.entries(profile.gamertags).filter(([_, v]) => v).map(([k, v]) => (
@@ -274,7 +275,7 @@ function ProfileView() {
 
         {/* Games */}
         {profile.preferred_games.length > 0 && (
-          <div className="border border-[#262626] bg-[#141414] p-6" data-testid="games-section">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="games-section">
             <h3 className="text-sm font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-3">GAMES PLAYED</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {profile.preferred_games.map(g => (

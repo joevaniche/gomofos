@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -96,13 +97,13 @@ function ProfileEdit() {
 
   const handleLogout = async () => { await logout(); navigate('/login'); };
 
-  if (loading) return <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center"><p className="text-white">Loading...</p></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><p className="text-white">Loading...</p></div>;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+    <div className="min-h-screen">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -126,7 +127,7 @@ function ProfileEdit() {
 
         <div className="space-y-6">
           {/* Basic Info */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-basic">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-basic">
             <div className="flex items-center gap-2 mb-4">
               <User size={24} weight="duotone" className="text-[#FF3B30]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>BASIC INFO</h3>
@@ -143,7 +144,7 @@ function ProfileEdit() {
           </section>
 
           {/* Location */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-location">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-location">
             <div className="flex items-center gap-2 mb-4">
               <MapPin size={24} weight="duotone" className="text-[#007AFF]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>LOCATION & TIMEZONE</h3>
@@ -173,7 +174,7 @@ function ProfileEdit() {
           </section>
 
           {/* Platforms */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-platforms">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-platforms">
             <div className="flex items-center gap-2 mb-4">
               <GameController size={24} weight="duotone" className="text-[#22C55E]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>PLATFORMS</h3>
@@ -194,7 +195,7 @@ function ProfileEdit() {
           </section>
 
           {/* Gamertags */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-gamertags">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-gamertags">
             <div className="flex items-center gap-2 mb-4">
               <User size={24} weight="duotone" className="text-[#F59E0B]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>GAMERTAGS</h3>
@@ -214,7 +215,7 @@ function ProfileEdit() {
           </section>
 
           {/* Preferred Games */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-games">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-games">
             <div className="flex items-center gap-2 mb-4">
               <GameController size={24} weight="duotone" className="text-[#FF3B30]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>GAMES YOU PLAY</h3>
@@ -244,7 +245,7 @@ function ProfileEdit() {
           </section>
 
           {/* Stake Range */}
-          <section className="border border-[#262626] bg-[#141414] p-6" data-testid="section-stake">
+          <section className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="section-stake">
             <div className="flex items-center gap-2 mb-4">
               <Coins size={24} weight="duotone" className="text-[#F59E0B]" />
               <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>STAKE RANGE</h3>

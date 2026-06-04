@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import Logo from '../components/Logo';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -218,7 +219,7 @@ function TournamentDetails() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center"><p className="text-white">Loading...</p></div>;
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-white">Loading...</p></div>;
   }
 
   const isParticipant = tournament?.participants?.some(p => p.user_id === user?.id);
@@ -240,11 +241,11 @@ function TournamentDetails() {
   }[tournament?.status] || { label: tournament?.status?.toUpperCase(), color: '#A3A3A3' };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
+    <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -267,7 +268,7 @@ function TournamentDetails() {
           {/* LEFT COLUMN */}
           <div className="lg:col-span-2 space-y-6">
             {/* Tournament Info */}
-            <div className="border border-[#262626] bg-[#141414] p-6">
+            <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6">
               <div className="flex items-start justify-between mb-2">
                 <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">{tournament?.game_name}</p>
                 <span className="text-xs font-bold uppercase tracking-[0.1em] px-3 py-1 border" style={{color: statusBadge.color, borderColor: statusBadge.color}} data-testid="tournament-status">
@@ -385,7 +386,7 @@ function TournamentDetails() {
 
             {/* Evidence Section (only when in_progress, pending, disputed, or completed) */}
             {tournament?.status !== 'open' && (
-              <div className="border border-[#262626] bg-[#141414] p-6" data-testid="evidence-section">
+              <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="evidence-section">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <ImageIcon size={24} weight="duotone" className="text-[#FF3B30]" />
@@ -418,7 +419,7 @@ function TournamentDetails() {
 
             {/* Latency Report (visible during/after match) */}
             {tournament?.status !== 'open' && latencyData.length > 0 && (
-              <div className="border border-[#262626] bg-[#141414] p-6" data-testid="latency-section">
+              <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="latency-section">
                 <div className="flex items-center gap-2 mb-4">
                   <WifiHigh size={24} weight="duotone" className="text-[#007AFF]" />
                   <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>LATENCY REPORT</h3>
@@ -442,7 +443,7 @@ function TournamentDetails() {
             )}
 
             {/* Participants */}
-            <div className="border border-[#262626] bg-[#141414] p-6" data-testid="participants-section">
+            <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="participants-section">
               <div className="flex items-center gap-2 mb-4">
                 <Users size={24} weight="duotone" className="text-[#007AFF]" />
                 <h3 className="text-xl font-bold" style={{fontFamily: 'Chivo'}}>PARTICIPANTS</h3>
@@ -467,7 +468,7 @@ function TournamentDetails() {
           </div>
 
           {/* CHAT */}
-          <div className="border border-[#262626] bg-[#141414] flex flex-col h-[600px]" data-testid="chat-section">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm flex flex-col h-[600px]" data-testid="chat-section">
             <div className="p-4 border-b border-[#262626]">
               <h3 className="text-lg font-bold" style={{fontFamily: 'Chivo'}}>CHAT</h3>
             </div>

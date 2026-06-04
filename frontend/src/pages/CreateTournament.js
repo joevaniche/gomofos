@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -78,10 +79,10 @@ function CreateTournament() {
 
   if (games.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A]">
-        <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <div className="min-h-screen">
+        <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+            <Logo />
           </div>
         </nav>
         <div className="max-w-3xl mx-auto p-6 text-center">
@@ -95,11 +96,11 @@ function CreateTournament() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
+    <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -125,7 +126,7 @@ function CreateTournament() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" data-testid="create-tournament-form">
-          <div className="border border-[#262626] bg-[#141414] p-6">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6">
             <div className="space-y-6">
               <div>
                 <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">SELECT GAME</label>

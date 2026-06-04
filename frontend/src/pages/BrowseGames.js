@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -80,10 +81,10 @@ function BrowseGames() {
   const handleLogout = async () => { await logout(); navigate('/login'); };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+    <div className="min-h-screen">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -121,7 +122,7 @@ function BrowseGames() {
         </div>
 
         {/* Search + Category filter */}
-        <div className="border border-[#262626] bg-[#141414] p-4 mb-6" data-testid="game-filters">
+        <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-4 mb-6" data-testid="game-filters">
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
             <div className="flex-1 relative">
               <MagnifyingGlass size={18} weight="bold" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A3A3A3]" />
@@ -146,7 +147,7 @@ function BrowseGames() {
 
         {/* Add Game Form */}
         {showAddGame && (
-          <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="add-game-form">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="add-game-form">
             <h3 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>ADD NEW GAME</h3>
             <form onSubmit={handleAddGame} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -196,7 +197,7 @@ function BrowseGames() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="games-grid">
             {games.map((game) => (
-              <div key={game.id} className="border border-[#262626] bg-[#141414] hover:border-[#3F3F3F] transition-colors group" data-testid={`game-card-${game.id}`}>
+              <div key={game.id} className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors group" data-testid={`game-card-${game.id}`}>
                 <div className="h-32 overflow-hidden bg-[#1A1A1A] flex items-center justify-center relative">
                   {game.image_url ? (
                     <img src={game.image_url} alt={game.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

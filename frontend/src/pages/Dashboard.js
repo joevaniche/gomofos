@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -50,11 +51,11 @@ function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
+    <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -175,7 +176,7 @@ function Dashboard() {
               {tournaments.map((tournament) => (
                 <div
                   key={tournament.id}
-                  className="border border-[#262626] bg-[#141414] hover:border-[#3F3F3F] transition-colors cursor-pointer"
+                  className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors cursor-pointer"
                   onClick={() => navigate(`/tournament/${tournament.id}`)}
                   data-testid={`tournament-card-${tournament.id}`}
                 >

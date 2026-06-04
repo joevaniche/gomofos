@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -41,11 +42,11 @@ function Leaderboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
+    <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]">
+      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tighter text-white" style={{fontFamily: 'Chivo'}}>ESPORTS BET</h1>
+          <Logo />
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
@@ -78,7 +79,7 @@ function Leaderboard() {
             <p className="text-[#A3A3A3]">No rankings yet. Be the first to compete!</p>
           </div>
         ) : (
-          <div className="border border-[#262626] bg-[#141414]">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm">
             {/* Header */}
             <div className="grid grid-cols-12 gap-4 p-4 border-b border-[#262626] text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">
               <div className="col-span-1">RANK</div>

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { Toaster } from './components/ui/sonner';
+import BackgroundVideo from './components/BackgroundVideo';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -21,7 +22,8 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <div className="App">
+        <div className="App relative">
+          <BackgroundVideo />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
