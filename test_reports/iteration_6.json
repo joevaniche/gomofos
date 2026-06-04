@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend-only validation of GoMofos custom branding (logo, background video, hero tagline + staggered STAKE/COMPETE/DOMINATE animation) across all routes. All 10 frontend assertions PASSED: landing page renders Logo (src ends with /gomofos-logo.png), exactly 1 <video> element with src /gomofos-bg.mp4, hero tagline 'GAME ON MOFOS!' visible, staggered hero words STAKE/COMPETE/DOMINATE all reach computed opacity 1 within 5s, START COMPETING CTA visible. Login & Register pages render Logo (size=large) above form and share the same single background video; all data-testids (login-form, login-email-input, login-password-input, login-submit-btn, register-form, register-*) present. Successful registration of a brand-new test user redirected to /dashboard with wallet balance 1000 CR displayed. Admin login + traversal of /dashboard, /games, /wallet, /leaderboard, /players, /profile, /create-tournament all show Logo and exactly 1 background video, with no redirects. Total: 6 routes traversed + 3 unauthenticated routes + register/login flows + animation timing — 100% pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/create-tournament",
+        "issues": [
+          "React hydration warning in console: 'In HTML, <span> cannot be a child of <option>'. The CreateTournament tournament-game <select> renders an <option> whose visible text is wrapped in a <span> (likely injected by a code-instrumentation wrapper). This is a non-blocking warning, not a functional bug — the select still works — but it pollutes the console and could become a real React 19 hydration error. Recommend rendering the game name as a direct text child of <option> rather than a wrapped span/component."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL: Fix the <span> inside <option> hydration warning on /create-tournament (CreateTournament.js line ~141). Render the game name as a plain text child of <option> with no wrapping element/component.",
+    "OPTIONAL (out-of-scope for this iteration): The pydantic EmailStr validator on POST /api/auth/register rejects emails with the '.test' TLD with HTTP 422. Documented because the review request suggested testing with @gomofos.test; switched to @example.com which works. Not a bug per se (the validator follows IANA reserved-TLD rules) but worth noting if frontend wants to surface a clearer error message instead of a generic 422 toast."
+  ],
+  "critical_code_review_comments": [
+    "BackgroundVideo is mounted once at App.js level (good — only one <video> per page, confirmed across 9 routes).",
+    "LandingPage uses inline opacity/transform style with setTimeout schedule (100/600/1600/2600/3400ms) and a CSS 0.8s transition — works correctly under Playwright headless after a 5s wait_for_timeout. No flakiness observed.",
+    "Logo component links to '/' and uses /gomofos-logo.png — verified resolvable on the public preview URL.",
+    "Login/Register both include <Logo size='large' /> centered at top, matching the request.",
+    "Toast on register failure currently surfaces the raw FastAPI 422 detail object; consider mapping common validation errors (invalid email, weak password) to user-friendly strings."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only)", "frontend": "100% (10/10 assertions, 9/9 routes)"},
+  "test_credentials": "Admin admin@esportsbet.com / admin123 verified working. New test user testuser<ts>@example.com registered successfully with 1000 CR initial balance.",
+  "seed_data_creation": "One additional TEST_-style user registered during the flow test (testuser1780547644@example.com / tu1780547644). Not cleaned up — accumulating with prior iteration's 208 TEST users.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GoMofos branding is fully verified on the preview deployment. Background video is mounted globally exactly once via BackgroundVideo in App.js. Logo appears on every page including auth pages. Landing-page staggered animation works in headless Playwright when you wait ~5.5s after page load (not earlier). For register-flow testing, do NOT use @gomofos.test emails — pydantic EmailStr rejects the .test TLD with 422; use @example.com or similar. Admin login works as documented. Only console nuisance remaining is the <span>-inside-<option> hydration warning on /create-tournament — main agent should address.",
+  "rca of the issue": "No blocking issues. Initial register failure (422) during this iteration was caused by using @gomofos.test as the email domain — pydantic v2 EmailStr / email-validator rejects reserved-TLDs by default. Re-running with @example.com succeeded immediately and produced the expected dashboard with 1000 CR balance. The original review-request example 'testuser_<timestamp>@gomofos.test' should be updated to use @example.com in future test plans."
+}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import Logo from '../components/Logo';
 
 function Register() {
   const [email, setEmail] = useState('');
@@ -26,7 +27,11 @@ function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
+    <div className="min-h-screen flex flex-col">
+      <div className="px-6 py-6 flex justify-center">
+        <Logo size="large" />
+      </div>
+      <div className="flex-1 flex items-center justify-center px-6">
       <div className="w-full max-w-md">
         <div className="mb-8">
           <h1 className="text-4xl font-black tracking-tighter text-white mb-2" style={{fontFamily: 'Chivo'}}>REGISTER</h1>
@@ -89,6 +94,7 @@ function Register() {
             Login
           </Link>
         </p>
+      </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import Logo from '../components/Logo';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Users, Shield, Lightning } from '@phosphor-icons/react';
@@ -7,12 +7,42 @@ import { useAuth } from '../contexts/AuthContext';
 function LandingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const taglineRef = useRef(null);
+  const stakeRef = useRef(null);
+  const competeRef = useRef(null);
+  const dominateRef = useRef(null);
+  const descRef = useRef(null);
+  const ctaRef = useRef(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (user) {
       navigate('/dashboard');
     }
   }, [user, navigate]);
+
+  useEffect(() => {
+    const reveal = (el) => {
+      if (!el) return;
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0) scale(1)';
+    };
+    const schedule = [
+      [100, taglineRef],
+      [600, stakeRef],
+      [1600, competeRef],
+      [2600, dominateRef],
+      [3400, descRef],
+      [3400, ctaRef],
+    ];
+    const timers = schedule.map(([delay, ref]) => setTimeout(() => reveal(ref.current), delay));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const hidden = {
+    opacity: 0,
+    transform: 'translateY(20px) scale(0.95)',
+    transition: 'opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+  };
 
   return (
     <div className="min-h-screen">
@@ -35,16 +65,16 @@ function LandingPage() {
       <section className="relative overflow-hidden">
         <div className="relative z-10 max-w-7xl mx-auto px-6 py-32">
           <div className="max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#FF3B30] mb-4 word-reveal" style={{animationDelay: '0.1s'}}>GAME ON MOFOS!</p>
+            <p ref={taglineRef} data-testid="hero-tagline" className="text-xs font-bold uppercase tracking-[0.2em] text-[#FF3B30] mb-4" style={hidden}>GAME ON MOFOS!</p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl tracking-tighter leading-none font-black text-white mb-6 flex flex-wrap gap-x-4" style={{fontFamily: 'Chivo'}}>
-              <span className="word-reveal inline-block" style={{animationDelay: '0.6s'}}>STAKE.</span>
-              <span className="word-reveal inline-block" style={{animationDelay: '2.6s'}}>COMPETE.</span>
-              <span className="word-reveal inline-block" style={{animationDelay: '4.6s'}}>DOMINATE.</span>
+              <span ref={stakeRef} data-testid="hero-word-stake" className="inline-block" style={hidden}>STAKE.</span>
+              <span ref={competeRef} data-testid="hero-word-compete" className="inline-block" style={hidden}>COMPETE.</span>
+              <span ref={dominateRef} data-testid="hero-word-dominate" className="inline-block" style={hidden}>DOMINATE.</span>
             </h1>
-            <p className="text-sm sm:text-base leading-relaxed tracking-wide text-[#A3A3A3] mb-8 max-w-2xl word-reveal" style={{animationDelay: '6.8s'}}>
+            <p ref={descRef} className="text-sm sm:text-base leading-relaxed tracking-wide text-[#A3A3A3] mb-8 max-w-2xl" style={hidden}>
               Join the ultimate esports competition platform. Organize tournaments, stake credits, and prove your skills across FIFA, NBA, Call of Duty, and more. Winner takes the pot.
             </p>
-            <div className="word-reveal" style={{animationDelay: '7.2s'}}>
+            <div ref={ctaRef} style={hidden}>
               <button data-testid="hero-get-started-btn" onClick={() => navigate('/register')} className="px-8 py-4 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors text-lg">
                 START COMPETING
               </button>
@@ -62,19 +92,19 @@ function LandingPage() {
               <h3 className="text-xl font-bold mb-2 tracking-tight" style={{fontFamily: 'Chivo'}}>SECURE ESCROW</h3>
               <p className="text-sm text-[#A3A3A3] leading-relaxed">Platform holds stakes in escrow. Winner gets the pot automatically.</p>
             </div>
-            
+
             <div className="border border-[#262626] p-6 bg-[#0A0A0A]/80 backdrop-blur-sm" data-testid="feature-all-games">
               <Lightning size={40} weight="duotone" className="text-[#007AFF] mb-4" />
               <h3 className="text-xl font-bold mb-2 tracking-tight" style={{fontFamily: 'Chivo'}}>ALL GAMES</h3>
               <p className="text-sm text-[#A3A3A3] leading-relaxed">FIFA, NBA, COD, and more. Any game, any platform.</p>
             </div>
-            
+
             <div className="border border-[#262626] p-6 bg-[#0A0A0A]/80 backdrop-blur-sm" data-testid="feature-live-chat">
               <Users size={40} weight="duotone" className="text-[#22C55E] mb-4" />
               <h3 className="text-xl font-bold mb-2 tracking-tight" style={{fontFamily: 'Chivo'}}>LIVE CHAT</h3>
               <p className="text-sm text-[#A3A3A3] leading-relaxed">Communicate with opponents in real-time during matches.</p>
             </div>
-            
+
             <div className="border border-[#262626] p-6 bg-[#0A0A0A]/80 backdrop-blur-sm" data-testid="feature-leaderboard">
               <Trophy size={40} weight="duotone" className="text-[#F59E0B] mb-4" />
               <h3 className="text-xl font-bold mb-2 tracking-tight" style={{fontFamily: 'Chivo'}}>LEADERBOARDS</h3>
