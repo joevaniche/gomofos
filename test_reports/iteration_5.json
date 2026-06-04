@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 4 retest: route-ordering, country-uppercase, and wallet_balance-scrub fixes are ALL verified working. Search endpoint now returns 200 (no longer 404). 20/22 iter4 tests pass. 42/42 legacy tests pass. The same 2 search tests still fail but for a DIFFERENT, newly-surfaced reason: GET /api/users/search has NO result ordering and DB now has 208 accumulated TEST_ users; with the default limit=50 the freshly-registered assertion users are buried in natural-insertion order and not returned. Country=AU/au filter, stake-range matching logic, and online-only filter all functionally work — they just don't return the newest matching user due to missing sort. Overall: 62/64 pass = 96.9%.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/users/search",
+        "issue": "Results are not ordered. The route does `db.users.find(query).limit(limit).to_list(limit)` with no .sort(). MongoDB returns documents in natural (insertion) order, so when many users exist the most-recent/relevant matches are buried beyond the default limit=50. This causes test_search_excludes_self_and_filters (stake range assertion) and test_search_online_only to fail because the just-registered user falls outside the first 50. RECOMMENDED FIX: .sort('last_active_at', -1) or .sort('created_at', -1) before .limit(). Also consider tightening the stake_min/max filter so users with NO stake_min/stake_max set are not included as matches for a stake-range query — currently `{$or: [{stake_min: {$exists: False}}, {stake_min: {$lte: max}}]}` matches all 200+ users without profile stake set."
+      },
+      {
+        "endpoint": "POST /api/challenges",
+        "issue": "Stake deduction not rolled back if subsequent tournament/participant inserts fail (no transaction). Carried over from iter4, still present."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_profiles_challenges.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter4_retest.xml",
+    "/app/test_reports/pytest/legacy_retest.xml"
+  ],
+  "action_items": [
+    "Add ordering to GET /api/users/search: e.g. `.sort([('last_active_at', -1), ('created_at', -1)])` BEFORE `.limit(limit)`. This will fix the 2 remaining test failures and also make the API behave deterministically in production.",
+    "OPTIONAL: tighten the stake_min/max search filter to only match users who have profile stake set (drop the `{$exists: False}` branch), or document this behavior.",
+    "OPTIONAL: clean up accumulated TEST_ users in DB (208 currently). Not strictly required once sort-by-recent is added."
+  ],
+  "verified_fixes": [
+    "Route-order fix verified: /users/me/profile (line 453), /users/search (line 458) now declared BEFORE /users/{user_id} (line 512). GET /users/search returns 200 (was 404). Curl as admin returns a JSON array.",
+    "Country normalization verified: PUT /api/users/profile uppercases country (lines 420-421). Tests at lines 215 and 222 (country=AU and country=au both find user written with country='AU') BOTH PASS.",
+    "wallet_balance scrub verified: search results return wallet_balance=0.0 (line 507) and GET /users/{user_id} returns wallet_balance=0.0 for non-self viewer (lines 521-523). Curl response confirms wallet_balance:0.0.",
+    "re.escape on q verified at line 476 — ReDoS-safe.",
+    "All 42 legacy tests (backend_test.py + test_new_features.py) still pass."
+  ],
+  "critical_code_review_comments": [
+    "GET /api/users/search lacks .sort() — must add deterministic ordering before .limit().",
+    "Stake-range filter accepts users with no stake set (via $exists: False). For a discovery search this dilutes results with unconfigured profiles; consider requiring stake fields exist when stake filter is applied.",
+    "server.py is now ~1381 lines. Strongly recommend splitting into routers/ modules.",
+    "_build_public_profile still triggers an N+1 DB query (one preferred_games find per result) inside the search loop — batch with $in.",
+    "Iteration-4 minor flags from prev report remain valid: no transaction around challenge stake deduction; last_active_at fire-and-forget task swallows errors."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "96.9% overall (62/64): iter4 20/22 + legacy 42/42",
+    "frontend": "not tested (testing_type=backend only)"
+  },
+  "test_credentials": "Admin admin@esportsbet.com / admin123 verified working.",
+  "seed_data_creation": "Tests register fresh TEST_-prefixed users per scenario. DB now has 208 total users (8 with stake_min, 98 with recent last_active_at) — accumulated TEST_ data from prior iterations is exposing the missing-sort bug in /users/search.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent adds .sort('last_active_at', -1) (or similar) before .limit() in GET /api/users/search (server.py line ~500), re-run `python -m pytest /app/backend/tests/test_iter4_profiles_challenges.py -v` and expect 22/22 pass. The route-ordering, country-uppercase, wallet_balance-scrub, and re.escape fixes from this iteration are ALL working — do not touch them. Legacy 42/42 already green.",
+  "rca of the issue": "REMAINING BUG: 2 search tests fail because GET /api/users/search has no result ordering. With 208 users accumulated in DB and a default limit of 50, MongoDB returns the first 50 in natural insertion order — i.e. the OLDEST 50 users. The freshly-registered assertion users (ua in test_search_excludes_self_and_filters, u_on in test_search_online_only) are created LAST and never appear in the top-50 page, causing `assert ua['id'] in ids6` and `assert u_on['id'] in ids` to fail. REPRO: register a brand-new user with country='AU' as part of a test, search country=AU → newest user not in first 50 of unsorted results. FIX: in /app/backend/server.py around line 500 change `db.users.find(query).limit(limit)` to `db.users.find(query).sort('last_active_at', -1).limit(limit)` (or sort by created_at desc). This will (a) make search results deterministic, (b) surface most-recently-active players first which is what a discovery search wants anyway, and (c) make both failing assertions pass without changing the assertions."
+}

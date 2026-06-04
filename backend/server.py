@@ -416,6 +416,10 @@ async def update_profile(profile_data: ProfileUpdate, user: dict = Depends(get_c
     """Update the current user's profile."""
     update_fields = {k: v for k, v in profile_data.model_dump(exclude_unset=True).items() if v is not None}
     
+    # Normalize country to uppercase
+    if "country" in update_fields and update_fields["country"]:
+        update_fields["country"] = update_fields["country"].upper()
+    
     # Validate stake range
     if update_fields.get("stake_min") is not None and update_fields.get("stake_max") is not None:
         if update_fields["stake_min"] > update_fields["stake_max"]:
@@ -451,16 +455,6 @@ async def get_my_profile(user: dict = Depends(get_current_user)):
     user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
     return await _build_public_profile(user_doc)
 
-@api_router.get("/users/{user_id}", response_model=PublicProfileResponse)
-async def get_user_profile(user_id: str, current: dict = Depends(get_current_user)):
-    try:
-        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
-    except Exception:
-        raise HTTPException(status_code=404, detail="User not found")
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-    return await _build_public_profile(user_doc)
-
 @api_router.get("/users/search")
 async def search_users(
     q: Optional[str] = None,
@@ -478,9 +472,11 @@ async def search_users(
     query: Dict[str, Any] = {"_id": {"$ne": ObjectId(current["id"])}}  # exclude self
     
     if q:
+        import re
+        q_safe = re.escape(q)
         query["$or"] = [
-            {"username": {"$regex": q, "$options": "i"}},
-            {"bio": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q_safe, "$options": "i"}},
+            {"bio": {"$regex": q_safe, "$options": "i"}},
         ]
     if game_id:
         query["preferred_game_ids"] = game_id
@@ -491,10 +487,8 @@ async def search_users(
     if min_wins is not None:
         query["total_wins"] = {"$gte": min_wins}
     if stake_min is not None or stake_max is not None:
-        # Player's range must overlap with requested range
         s_min = stake_min if stake_min is not None else 0
         s_max = stake_max if stake_max is not None else 10**9
-        # Overlap: player.stake_min <= s_max AND player.stake_max >= s_min
         query["$and"] = query.get("$and", []) + [
             {"$or": [{"stake_min": {"$lte": s_max}}, {"stake_min": {"$exists": False}}]},
             {"$or": [{"stake_max": {"$gte": s_min}}, {"stake_max": {"$exists": False}}]},
@@ -509,9 +503,25 @@ async def search_users(
     results = []
     for u in users:
         profile = await _build_public_profile(u)
+        # Hide wallet_balance from other users
+        profile["wallet_balance"] = 0.0
         profile["is_online"] = bool(profile.get("last_active_at") and profile["last_active_at"] >= online_cutoff)
         results.append(profile)
     return results
+
+@api_router.get("/users/{user_id}", response_model=PublicProfileResponse)
+async def get_user_profile(user_id: str, current: dict = Depends(get_current_user)):
+    try:
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    profile = await _build_public_profile(user_doc)
+    # Hide wallet_balance if viewing someone else's profile
+    if user_id != current["id"]:
+        profile["wallet_balance"] = 0.0
+    return profile
 
 @api_router.get("/countries")
 async def list_countries():
