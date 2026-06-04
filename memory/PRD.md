@@ -140,3 +140,38 @@
 - `/app/frontend/src/pages/TournamentDetails.js` (winner gets "FLEX ON X" button + `<ShareOnXModal />`)
 - `/app/backend/tests/test_highlights_share.py` (NEW pytest, 12 cases)
 
+
+## Iteration 8: SendGrid Emails + Latency Tie-Breaker (June 4, 2026)
+### Done
+- **SendGrid integration** (`backend/email_service.py`) — async, fire-and-forget, never blocks API responses and swallows SendGrid errors so the request flow stays green even when sender is unverified
+  - Triggers wired: `POST /api/challenges` → match-invite email to challenged player; submit-result dispute branch → dispute-alert email to every non-opener participant
+  - Admin escalation NOT wired (user deferred this) — backlog item
+  - Branded HTML template + plain-text fallback for both email types (FIFA-stadium black/red Chivo styling matching the app)
+- **Latency thresholds** (matches backend `LATENCY_WARN_MS=100`, `LATENCY_HIGH_MS=200`):
+  - Frontend in-match banners: <100ms = no banner; 100–199ms = yellow `data-testid="latency-banner-warn"` ("connection unstable, may weigh against you"); ≥200ms = red `data-testid="latency-banner-high"` ("HIGH LATENCY, dispute tie-break goes against you")
+  - **Policy: ALLOW the match but flag** — no blocking; high-latency player simply loses the tie-breaker
+- **Latency advantage tie-breaker** (`_compute_latency_advantage` in server.py):
+  - Eligibility: ≥3 samples per player
+  - Logic: if any player has peak ≥200ms (`status=high`) AND another doesn't, the non-high player wins advantage; otherwise lower avg wins
+  - New endpoint `GET /api/tournaments/{id}/latency-advantage` (participant or admin only)
+  - Dispute creation now embeds `latency_advantage` directly on the tournament document so the frontend can render the tie-breaker callout inside the dispute banner
+- **Latency log** — already had `tournament_latency` collection; added `(tournament_id, user_id, timestamp)` compound index for fast aggregation
+- **Frontend dispute banner** now shows `latency-advantage-callout` with the advantaged player's name + per-player breakdown (avg ms, peak ms, sample count, color-coded status)
+- **Tournament detail GET** now exposes `latency_advantage` (null pre-dispute)
+
+### Verified
+- Backend pytest 9/9 PASS (`test_iter8_latency_email.py`)
+- Frontend Playwright 4/4 PASS (forced banner-high, forced banner-warn, dispute callout with seeded asymmetric latency, landing regression)
+- SendGrid 403 from unverified sender confirmed swallowed gracefully (exit code 0)
+
+### ACTION REQUIRED FROM USER
+- **Verify `helpdesk@gomofos.com` in SendGrid Sender Auth** — until this is done, emails return 403 and are silently dropped (no user-facing impact, but no emails delivered either). Go to https://app.sendgrid.com/settings/sender_auth/senders or authenticate the gomofos.com domain. Once verified, emails start flowing with zero code change.
+
+### Files touched
+- `/app/backend/email_service.py` (NEW)
+- `/app/backend/server.py` (+~140 lines: email service imports, fire emails in challenges + submit-result dispute, latency advantage helper + endpoint, latency_advantage in tournament detail, tournament_latency index)
+- `/app/backend/.env` (+`SENDGRID_API_KEY`, `SENDER_EMAIL`)
+- `/app/backend/requirements.txt` (+`sendgrid==6.12.5`)
+- `/app/frontend/src/pages/TournamentDetails.js` (latency thresholds, in-match banners, dispute latency-advantage callout)
+- `/app/backend/tests/test_iter8_latency_email.py` (NEW, 9 cases)
+
