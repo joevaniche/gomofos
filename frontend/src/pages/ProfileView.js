@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Coins, User, MapPin, Trophy, X, Sword, Circle, CircleDashed } from '@phosphor-icons/react';
 import { toast } from 'sonner';
+import { HighlightReels } from '../components/HighlightReels';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -121,6 +122,7 @@ function ProfileView() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
+  const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showChallenge, setShowChallenge] = useState(false);
 
@@ -128,12 +130,14 @@ function ProfileView() {
 
   const loadAll = async () => {
     try {
-      const [p, mine] = await Promise.all([
+      const [p, mine, g] = await Promise.all([
         axios.get(`${API}/users/${id}`, { withCredentials: true }),
         axios.get(`${API}/users/me/profile`, { withCredentials: true }),
+        axios.get(`${API}/games`, { withCredentials: true }),
       ]);
       setProfile(p.data);
       setMyProfile(mine.data);
+      setGames(g.data);
     } catch (e) {
       toast.error('Profile not found');
       navigate('/players');
@@ -275,7 +279,7 @@ function ProfileView() {
 
         {/* Games */}
         {profile.preferred_games.length > 0 && (
-          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6" data-testid="games-section">
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6 mb-6" data-testid="games-section">
             <h3 className="text-sm font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-3">GAMES PLAYED</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {profile.preferred_games.map(g => (
@@ -287,6 +291,9 @@ function ProfileView() {
             </div>
           </div>
         )}
+
+        {/* Highlight Reels */}
+        <HighlightReels userId={profile.id} isOwner={isOwnProfile} games={games} />
       </div>
 
       {showChallenge && <ChallengeModal opponent={profile} currentUserGames={myProfile?.preferred_games || []} onClose={() => setShowChallenge(false)} />}

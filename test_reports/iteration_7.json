@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 7 verifies the new Highlight Reels backend + 'Flex on X' tournament share-card features end-to-end. Backend pytest (12/12 PASS) covers: upload valid MP4, list user reels (newest-first), get reel increments view_count, stream returns video bytes, reject image/png, reject empty title, reject 51 MB oversize file (HTTP 400 'File too large'), owner-only DELETE (403 for stranger / 200 for owner), share card OG meta tags, share card with ?reel= adds og:video + twitter:player pointing to /api/highlights/{reel_id}/stream, 404 on invalid tournament, and evidence-upload regression. Frontend Playwright (9/9 PASS) seeded a fresh 2-player completed tournament via API, then drove the UI as the winner: highlights-section + upload-highlight-btn present on OWN /profile/{id}; upload-highlight-modal opens with highlight-file-input (hidden by design), highlight-title-input, highlight-game-select; uploaded reel renders in grid with Play overlay button; visiting OTHER user's /profile/{id} shows highlights-section but no upload-highlight-btn; on completed tournament where logged-in user is winner_id, share-on-x-btn appears in winner-announcement; modal exposes share-reel-select (populated because user has reels), post-to-x-btn, copy-share-link-btn; clicking COPY writes 'Just took down @opponent for 200 CR on @gomofos playing 7 Days to Die! 🏆 <REACT_APP_BACKEND_URL>/api/share/tournament/<tid>' to clipboard exactly as expected. Landing-page GoMofos branding regression (logo + 1 background video + STAKE/COMPETE/DOMINATE staggered animation visible within 5.5s) confirmed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_highlights_share.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: The upload-highlight-modal's frontend handleFile probes duration via HTMLVideoElement and silently rejects any file the browser can't decode (toast 'Couldn't read that video. Try MP4.'). For Playwright/automated coverage, this means a synthetic mp4 blob cannot pass UI upload — only the API path can. If you want UI-level upload automation in future iterations, either ship a small real .mp4 fixture under /app/frontend/public/ or accept the file before duration probing finishes (treat probe failure as duration=0 instead of blocking).",
+    "OPTIONAL: backend POST /api/highlights reads the entire body into memory before the size check (line 1147-1149 of server.py). For the documented 50 MB limit this is fine, but it means a malicious client can force the server to buffer up to ~50 MB per request. Consider streaming + early-abort if size guarantees ever matter."
+  ],
+  "critical_code_review_comments": [
+    "/api/share/tournament/{id} is registered on `app` (not `api_router`) but with the explicit /api prefix — this works because Kubernetes ingress routes /api/* to backend 8001 regardless of which router exposed it. Confirmed live.",
+    "HighlightReels.handleFile rejects synthetic test mp4 blobs because video.onerror fires when the browser can't decode the file. Backend accepts the same blob (only content_type + size is validated). This is a deliberate client-side guard but worth flagging for future UI test fixtures.",
+    "highlight-file-input has className='hidden' (proxied through a styled button) — Playwright is_visible() returns false for it; use locator().count() instead. No code change needed.",
+    "Reel grid card's Play overlay is a <button> wrapping the <video> with object-cover — works, but note that the <video src> uses HTTP GET on /api/highlights/{id}/stream which currently returns the FULL response body in one go (no HTTP Range support). For 50 MB clips this delays first-frame; future enhancement: use StreamingResponse with Range support.",
+    "view_count increment happens on every GET /api/highlights/{id} including the fire-and-forget call from handlePlay — so a single play increments by 1 (good). However, GET also returns the pre-increment+1 value via local add (line 1227), which means a freshly created reel with 0 views will show 1 immediately on first GET. Consistent across tests but slightly counter-intuitive for owner viewing their own reel."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_highlights_share.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (9/9 flows: seed, own-profile-upload-btn, upload-modal-fields, reel-in-grid, other-profile-no-upload-btn, share-x-btn-visible, share-modal-elements, copy-clipboard, landing-regression)"},
+  "test_credentials": "Admin admin@esportsbet.com / admin123 verified. Seeded users: flex1_<ts>@example.com / Password123 (winner), flex2_<ts>@example.com / Password123 (loser).",
+  "seed_data_creation": "Each pytest run + each Playwright run creates 2 new users + 1 tournament (auto-completed, status=completed) + 1 highlight reel for the winner. Approx 4 users + 1 tournament + 2 reels added per iteration; not auto-cleaned.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Highlight Reels (POST/GET/DELETE /api/highlights*, /stream) and Tournament Share Card (/api/share/tournament/{id} with optional ?reel=) are fully working end-to-end against the public preview URL. For UI tests requiring a logged-in WINNER on a completed tournament, the fastest seed is: register 2 users via /api/auth/register → user1 creates tournament (100 CR stake) → user2 joins (status auto-flips to in_progress) → both submit-result with the same claimed_winner_id → tournament auto-completes with winner_id set. The frontend file-upload modal will reject synthetic mp4 blobs (HTMLVideoElement.onerror), so always upload reels via the /api/highlights endpoint directly from your Playwright script if you need a reel present on the winner's profile for downstream share-modal tests. Clipboard tests must call context.grant_permissions(['clipboard-read','clipboard-write'], origin=BASE_URL) before clicking copy.",
+  "rca of the issue": "No bugs found. The single mid-run failure during iteration 7 (assertion on is_visible(highlight-file-input)) was a test-script issue — the input is intentionally CSS-hidden and proxied through a clickable button. Switched to locator().count()==1 and continued; not a product defect."
+}

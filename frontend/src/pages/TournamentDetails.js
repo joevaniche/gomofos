@@ -3,7 +3,7 @@ import Logo from '../components/Logo';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { SignOut, Coins, Users, Trophy, PaperPlaneRight, Upload, Image as ImageIcon, WifiHigh, WifiLow, WifiMedium, ShieldWarning, CheckCircle } from '@phosphor-icons/react';
+import { SignOut, Coins, Users, Trophy, PaperPlaneRight, Upload, Image as ImageIcon, WifiHigh, WifiLow, WifiMedium, ShieldWarning, CheckCircle, XLogo, VideoCamera } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -23,6 +23,7 @@ function TournamentDetails() {
   const [selectedWinner, setSelectedWinner] = useState('');
   const [evidence, setEvidence] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [showShareX, setShowShareX] = useState(false);
   const [latencyData, setLatencyData] = useState([]);
   const [currentLatency, setCurrentLatency] = useState(null);
 
@@ -355,14 +356,22 @@ function TournamentDetails() {
 
               {tournament?.status === 'completed' && tournament?.winner_id && (
                 <div className="mt-2 p-4 bg-[#22C55E]/10 border border-[#22C55E]" data-testid="winner-announcement">
-                  <div className="flex items-center gap-3">
-                    <Trophy size={32} weight="duotone" className="text-[#22C55E]" />
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">WINNER ({tournament?.resolution?.replace('_', ' ')})</p>
-                      <p className="text-lg font-bold text-white">
-                        {tournament?.participants?.find(p => p.user_id === tournament?.winner_id)?.username || 'Unknown'}
-                      </p>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <Trophy size={32} weight="duotone" className="text-[#22C55E]" />
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">WINNER ({tournament?.resolution?.replace('_', ' ')})</p>
+                        <p className="text-lg font-bold text-white">
+                          {tournament?.participants?.find(p => p.user_id === tournament?.winner_id)?.username || 'Unknown'}
+                        </p>
+                      </div>
                     </div>
+                    {tournament?.winner_id === user?.id && (
+                      <button data-testid="share-on-x-btn" onClick={() => setShowShareX(true)}
+                        className="px-4 py-2 bg-black text-white font-bold hover:bg-[#1A1A1A] border border-[#3F3F3F] transition-colors flex items-center gap-2 text-sm">
+                        <XLogo size={16} weight="bold" /> FLEX ON X
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -492,6 +501,105 @@ function TournamentDetails() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      </div>
+      {showShareX && (
+        <ShareOnXModal
+          tournament={tournament}
+          user={user}
+          onClose={() => setShowShareX(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ShareOnXModal({ tournament, user, onClose }) {
+  const [reels, setReels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReelId, setSelectedReelId] = useState('');
+
+  useEffect(() => {
+    axios.get(`${API}/highlights/user/${user.id}`)
+      .then(r => {
+        const list = r.data || [];
+        setReels(list);
+        // Auto-pick a matching-game reel if any
+        if (tournament?.game_id) {
+          const match = list.find(x => x.game_id === tournament.game_id);
+          if (match) setSelectedReelId(match.id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [user.id, tournament?.game_id]);
+
+  const winnerName = user.username;
+  const opponentName = tournament?.participants?.find(p => p.user_id !== user.id)?.username || 'a Mofo';
+  const gameName = tournament?.game_name || 'an online match';
+  const pot = (tournament?.stake_amount || 0) * (tournament?.participants?.length || 2);
+
+  const base = process.env.REACT_APP_BACKEND_URL;
+  const shareUrl = `${base}/api/share/tournament/${tournament.id}` + (selectedReelId ? `?reel=${selectedReelId}` : '');
+  const text = `Just took down @${opponentName} for ${pot.toFixed(0)} CR on @gomofos playing ${gameName}! 🏆`;
+  const twitterIntent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+
+  const handleShare = () => {
+    window.open(twitterIntent, '_blank', 'noopener,width=600,height=600');
+    onClose();
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(`${text} ${shareUrl}`);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose} data-testid="share-x-modal">
+      <div className="bg-[#141414] border border-[#262626] max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-[#262626]">
+          <div className="flex items-center gap-2">
+            <XLogo size={24} weight="bold" className="text-white" />
+            <h3 className="text-xl font-bold" style={{ fontFamily: 'Chivo' }}>FLEX YOUR WIN</h3>
+          </div>
+          <button onClick={onClose} className="text-[#A3A3A3] hover:text-white text-2xl leading-none">×</button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="p-4 bg-[#0A0A0A] border border-[#262626]">
+            <p className="text-sm text-white whitespace-pre-wrap">{text}</p>
+            <p className="text-xs text-[#A3A3A3] mt-2 break-all">{shareUrl}</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2 flex items-center gap-2">
+              <VideoCamera size={14} weight="duotone" className="text-[#FF3B30]" /> ATTACH A HIGHLIGHT REEL (OPTIONAL)
+            </label>
+            {loading ? (
+              <p className="text-sm text-[#A3A3A3]">Loading your reels...</p>
+            ) : reels.length === 0 ? (
+              <p className="text-xs text-[#A3A3A3]">You don't have any reels yet. Upload one from your profile to attach to future shares.</p>
+            ) : (
+              <select data-testid="share-reel-select" value={selectedReelId} onChange={(e) => setSelectedReelId(e.target.value)}
+                className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]">
+                <option value="">No reel — text only</option>
+                {reels.map(r => (
+                  <option key={r.id} value={r.id}>{r.title} {r.game_name ? `· ${r.game_name}` : ''} · {Math.round(r.duration_sec || 0)}s</option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-[#A3A3A3] mt-2">X embeds the linked card with your reel as a video preview.</p>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button data-testid="post-to-x-btn" onClick={handleShare}
+              className="flex-1 px-6 py-3 bg-black text-white font-bold hover:bg-[#1A1A1A] border border-[#3F3F3F] transition-colors flex items-center justify-center gap-2">
+              <XLogo size={18} weight="bold" /> POST TO X
+            </button>
+            <button data-testid="copy-share-link-btn" onClick={handleCopy}
+              className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all">
+              COPY
+            </button>
           </div>
         </div>
       </div>

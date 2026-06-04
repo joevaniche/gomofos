@@ -4,8 +4,8 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, WebSocket, WebSocketDisconnect, Header, Query
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Header, Query
+from fastapi.responses import JSONResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -1120,6 +1120,221 @@ async def download_evidence(evidence_id: str, user: dict = Depends(get_current_u
     data, content_type = get_object(item["storage_path"])
     return Response(content=data, media_type=item.get("content_type", content_type))
 
+# ============ HIGHLIGHT REELS ============
+HIGHLIGHT_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+HIGHLIGHT_MAX_DURATION_SEC = 60
+HIGHLIGHT_ALLOWED_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
+
+
+@api_router.post("/highlights")
+async def upload_highlight(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    game_id: str = Form(""),
+    duration_sec: float = Form(0.0),
+    user: dict = Depends(get_current_user),
+):
+    """Upload a highlight reel video. Public by default. Max 60s / 50MB."""
+    if file.content_type not in HIGHLIGHT_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Only MP4, MOV, or WebM video files allowed")
+    if not title or len(title.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Title required")
+    if len(title) > 120:
+        raise HTTPException(status_code=400, detail="Title too long (max 120 chars)")
+    if duration_sec and duration_sec > HIGHLIGHT_MAX_DURATION_SEC:
+        raise HTTPException(status_code=400, detail=f"Video too long (max {HIGHLIGHT_MAX_DURATION_SEC}s)")
+
+    data = await file.read()
+    if len(data) > HIGHLIGHT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "mp4"
+    path = f"{APP_NAME}/highlights/{user['id']}/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, file.content_type)
+
+    game_name = ""
+    if game_id:
+        try:
+            game = await db.games.find_one({"_id": ObjectId(game_id)})
+            if game:
+                game_name = game.get("name", "")
+        except Exception:
+            game_id = ""
+
+    reel_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "title": title.strip(),
+        "storage_path": result["path"],
+        "content_type": file.content_type,
+        "size": result.get("size", len(data)),
+        "duration_sec": float(duration_sec) if duration_sec else 0.0,
+        "game_id": game_id,
+        "game_name": game_name,
+        "view_count": 0,
+        "is_public": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.highlight_reels.insert_one(reel_doc)
+    return {
+        "id": reel_doc["id"],
+        "title": reel_doc["title"],
+        "game_name": game_name,
+        "duration_sec": reel_doc["duration_sec"],
+        "view_count": 0,
+        "created_at": reel_doc["created_at"],
+        "video_url": f"/api/highlights/{reel_doc['id']}/stream",
+    }
+
+
+@api_router.get("/highlights/user/{user_id}")
+async def list_user_highlights(user_id: str):
+    """Public list of a user's highlight reels (newest first)."""
+    cursor = db.highlight_reels.find({"user_id": user_id, "is_public": True}).sort("created_at", -1).limit(100)
+    items = await cursor.to_list(100)
+    return [
+        {
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "title": r["title"],
+            "game_id": r.get("game_id", ""),
+            "game_name": r.get("game_name", ""),
+            "duration_sec": r.get("duration_sec", 0.0),
+            "view_count": r.get("view_count", 0),
+            "created_at": r["created_at"],
+            "video_url": f"/api/highlights/{r['id']}/stream",
+        }
+        for r in items
+    ]
+
+
+@api_router.get("/highlights/{reel_id}")
+async def get_highlight(reel_id: str):
+    """Get highlight reel metadata (public). Increments view count."""
+    reel = await db.highlight_reels.find_one({"id": reel_id, "is_public": True})
+    if not reel:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    await db.highlight_reels.update_one({"id": reel_id}, {"$inc": {"view_count": 1}})
+    owner = await db.users.find_one({"_id": ObjectId(reel["user_id"])})
+    return {
+        "id": reel["id"],
+        "user_id": reel["user_id"],
+        "username": owner["username"] if owner else "Unknown",
+        "title": reel["title"],
+        "game_id": reel.get("game_id", ""),
+        "game_name": reel.get("game_name", ""),
+        "duration_sec": reel.get("duration_sec", 0.0),
+        "view_count": reel.get("view_count", 0) + 1,
+        "created_at": reel["created_at"],
+        "video_url": f"/api/highlights/{reel['id']}/stream",
+    }
+
+
+@api_router.get("/highlights/{reel_id}/stream")
+async def stream_highlight(reel_id: str):
+    """Stream the video bytes for a public highlight reel."""
+    reel = await db.highlight_reels.find_one({"id": reel_id, "is_public": True})
+    if not reel:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    data, content_type = get_object(reel["storage_path"])
+    return Response(content=data, media_type=reel.get("content_type", content_type))
+
+
+@api_router.delete("/highlights/{reel_id}")
+async def delete_highlight(reel_id: str, user: dict = Depends(get_current_user)):
+    """Delete a highlight reel (owner only)."""
+    reel = await db.highlight_reels.find_one({"id": reel_id})
+    if not reel:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    if reel["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the owner can delete this highlight")
+    await db.highlight_reels.delete_one({"id": reel_id})
+    return {"ok": True}
+
+
+# ============ TOURNAMENT SHARE CARD (OG meta for X/Twitter) ============
+def _absolute_base_url() -> str:
+    return os.environ.get("PUBLIC_APP_URL") or os.environ.get("FRONTEND_URL", "https://gomofos.com")
+
+
+@app.get("/api/share/tournament/{tournament_id}", response_class=HTMLResponse)
+async def tournament_share_card(tournament_id: str, reel: str = ""):
+    """Public HTML page with Open Graph meta tags so X/Twitter can render a rich preview
+    (with optional video preview) when a tournament result is shared."""
+    try:
+        t = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    except Exception:
+        t = None
+    if not t:
+        return HTMLResponse("<h1>Tournament not found</h1>", status_code=404)
+
+    game = await db.games.find_one({"_id": ObjectId(t["game_id"])}) if t.get("game_id") else None
+    game_name = game["name"] if game else "the game"
+    winner = None
+    if t.get("winner_id"):
+        try:
+            winner = await db.users.find_one({"_id": ObjectId(t["winner_id"])})
+        except Exception:
+            winner = None
+    winner_name = winner["username"] if winner else "A Mofo"
+    participant_count = await db.tournament_participants.count_documents({"tournament_id": tournament_id})
+    pot = float(t.get("stake_amount", 0)) * (participant_count or 2)
+
+    title = f"{winner_name} won {pot:.0f} CR on Gomofos!"
+    description = f"{winner_name} just took the pot playing {game_name} on GoMofos. Stake. Compete. Dominate."
+
+    base = _absolute_base_url().rstrip("/")
+    page_url = f"{base}/api/share/tournament/{tournament_id}" + (f"?reel={reel}" if reel else "")
+    image_url = f"{base}/gomofos-logo.png"
+    redirect_url = f"{base}/tournament/{tournament_id}"
+
+    video_meta = ""
+    if reel:
+        reel_doc = await db.highlight_reels.find_one({"id": reel, "is_public": True})
+        if reel_doc:
+            video_url = f"{base}/api/highlights/{reel}/stream"
+            video_meta = f"""
+    <meta property="og:video" content="{video_url}" />
+    <meta property="og:video:secure_url" content="{video_url}" />
+    <meta property="og:video:type" content="{reel_doc.get('content_type', 'video/mp4')}" />
+    <meta property="og:video:width" content="1280" />
+    <meta property="og:video:height" content="720" />
+    <meta name="twitter:card" content="player" />
+    <meta name="twitter:player" content="{video_url}" />
+    <meta name="twitter:player:width" content="1280" />
+    <meta name="twitter:player:height" content="720" />
+    <meta name="twitter:player:stream" content="{video_url}" />
+    <meta name="twitter:player:stream:content_type" content="{reel_doc.get('content_type', 'video/mp4')}" />
+"""
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{title}</title>
+<meta property="og:type" content="website" />
+<meta property="og:title" content="{title}" />
+<meta property="og:description" content="{description}" />
+<meta property="og:url" content="{page_url}" />
+<meta property="og:image" content="{image_url}" />
+<meta property="og:site_name" content="GoMofos" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{title}" />
+<meta name="twitter:description" content="{description}" />
+<meta name="twitter:image" content="{image_url}" />
+{video_meta}
+<meta http-equiv="refresh" content="2; url={redirect_url}" />
+<style>body{{font-family:system-ui;background:#0A0A0A;color:#fff;text-align:center;padding:64px 24px;}}a{{color:#FF3B30;}}</style>
+</head>
+<body>
+<h1>{title}</h1>
+<p>{description}</p>
+<p>Redirecting to the tournament... <a href="{redirect_url}">tap here if it doesn't load</a></p>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 # ============ LATENCY TRACKING ============
 @api_router.post("/tournaments/{tournament_id}/latency")
 async def record_latency(tournament_id: str, latency_ms: float, user: dict = Depends(get_current_user)):
@@ -1420,6 +1635,8 @@ async def startup_event():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.highlight_reels.create_index([("user_id", 1), ("created_at", -1)])
+    await db.highlight_reels.create_index("id", unique=True)
     
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@esportsbet.com")
