@@ -109,3 +109,34 @@
 - Public dispute history page for trust
 - Auto-fill missing game covers via IGDB API
 - Refactor monolithic `/app/backend/server.py` (~1,500 lines) into modular routes
+
+## Iteration 7: Highlight Reels + Flex on X (June 4, 2026)
+### Done
+- **Highlight Reels** — backend `db.highlight_reels` collection + endpoints:
+  - `POST /api/highlights` (multipart upload, 60s / 50 MB cap, MP4/MOV/WebM, public by default, server-side validation + Emergent Object Storage persist)
+  - `GET /api/highlights/user/{user_id}` (public list, newest first)
+  - `GET /api/highlights/{reel_id}` (metadata + view-count increment)
+  - `GET /api/highlights/{reel_id}/stream` (video bytes, public)
+  - `DELETE /api/highlights/{reel_id}` (owner only)
+  - Indexes: `(user_id, created_at desc)` + unique `id`
+- **`<HighlightReels />` component** on `ProfileView`: grid of reels with thumbnail + duration badge + view count; owner sees "UPLOAD CLIP" button; click-to-play modal; client-side duration/size validation before upload; progress bar
+- **Tournament Share Card** — `GET /api/share/tournament/{tournament_id}` returns standalone HTML with full Open Graph + Twitter Card meta tags so X embeds a rich preview. Optional `?reel={reel_id}` adds `og:video` + `twitter:card=player` + `twitter:player:stream` for video embedding directly in tweet timelines
+- **"FLEX ON X" button** on TournamentDetails — only visible when `tournament.winner_id === user.id` and `status==='completed'`. Opens a modal where the winner picks which of their highlight reels to attach (or none), with auto-pick by matching game. Renders the share text (`Just took down @opponent for 200 CR on @gomofos playing FIFA! 🏆`) and the share URL; "POST TO X" opens Twitter web intent in a new window; "COPY" puts text + URL on clipboard
+
+### Verified
+- Backend pytest 12/12 PASS — including 51 MB oversize rejection, image/png rejection, empty-title rejection, owner-only DELETE (403/200), OG meta tags rendered correctly, OG video meta on `?reel=` param
+- Frontend Playwright 9/9 PASS — own profile shows upload button, other profile doesn't; upload modal opens; uploaded reel shows in grid; winner sees "FLEX ON X"; share modal exposes reel picker + post/copy; clipboard copies expected text + URL
+- Landing branding regression OK
+
+### Notes / Future Polish
+- POST `/api/highlights` buffers full file in memory before size check (fine at 50 MB; if cap increases later, switch to streaming with early abort)
+- `/stream` endpoint returns full body in one response (no HTTP Range support yet); first-frame for 50 MB clips may take a beat. Future: `StreamingResponse` + Range header
+- View count returns post-increment value on the same GET — first GET of a new reel shows "1 view" immediately
+
+### Files touched
+- `/app/backend/server.py` (+~220 lines for highlight reels + share card; index registration; HTMLResponse + Form import)
+- `/app/frontend/src/components/HighlightReels.js` (NEW)
+- `/app/frontend/src/pages/ProfileView.js` (load games, render `<HighlightReels />` block)
+- `/app/frontend/src/pages/TournamentDetails.js` (winner gets "FLEX ON X" button + `<ShareOnXModal />`)
+- `/app/backend/tests/test_highlights_share.py` (NEW pytest, 12 cases)
+
