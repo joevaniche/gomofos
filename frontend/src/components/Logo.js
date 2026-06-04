@@ -6,6 +6,7 @@ export default function Logo({ size = 'default' }) {
     small: 'h-8',
     default: 'h-12',
     large: 'h-20',
+    xlarge: 'h-40',
   };
   return (
     <Link to="/" data-testid="site-logo" className="flex items-center hover:opacity-80 transition-opacity">

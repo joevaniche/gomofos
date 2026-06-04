@@ -47,10 +47,10 @@ function LandingPage() {
   return (
     <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Logo />
-          <div className="flex gap-4">
+      <nav className="absolute top-0 left-0 right-0 z-20">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-start justify-between">
+          <Logo size="xlarge" />
+          <div className="flex gap-4 pt-4">
             <button data-testid="nav-login-btn" onClick={() => navigate('/login')} className="px-6 py-2 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all">
               LOGIN
             </button>
@@ -63,7 +63,7 @@ function LandingPage() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden">
-        <div className="relative z-10 max-w-7xl mx-auto px-6 py-32">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 pt-56 pb-32">
           <div className="max-w-3xl">
             <p ref={taglineRef} data-testid="hero-tagline" className="text-xs font-bold uppercase tracking-[0.2em] text-[#FF3B30] mb-4" style={hidden}>GAME ON MOFOS!</p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl tracking-tighter leading-none font-black text-white mb-6 flex flex-wrap gap-x-4" style={{fontFamily: 'Chivo'}}>
