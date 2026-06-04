@@ -101,13 +101,13 @@ def _wrap_html(title: str, intro: str, cta_url: Optional[str], cta_label: Option
 
 async def send_match_invite(*, to_email: str, opponent_username: str, challenger_username: str,
                             game_name: str, stake_amount: float, tournament_id: str,
-                            app_url: str) -> None:
+                            app_url: str, decline_token: Optional[str] = None) -> None:
     if not to_email:
         return
     title = f"{challenger_username} just challenged you on Gomofos"
     intro = (f"You've been invited to a 1v1 match in <strong style='color:#fff'>{game_name}</strong> "
              f"for <strong style='color:#fff'>{stake_amount:.0f} CR</strong>. "
-             "Accept and prove you're the better Mofo.")
+             "Accept and prove you're the better Mofo — or decline and both stakes get refunded automatically.")
     extra = f"""
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#141414;border:1px solid #262626;">
       <tr><td style="padding:16px;">
@@ -120,14 +120,49 @@ async def send_match_invite(*, to_email: str, opponent_username: str, challenger
       </td></tr>
     </table>
     """
-    cta_url = f"{app_url.rstrip('/')}/tournament/{tournament_id}"
-    html = _wrap_html(title, intro, cta_url, "ACCEPT CHALLENGE", extra)
-    plain = (
-        f"Hey {opponent_username},\n\n"
-        f"{challenger_username} challenged you to a 1v1 match in {game_name} for {stake_amount:.0f} CR on Gomofos.\n\n"
-        f"Accept here: {cta_url}\n\n"
-        "Game on, Mofo.\n— Gomofos"
-    )
+    base = app_url.rstrip("/")
+    accept_url = f"{base}/tournament/{tournament_id}"
+    decline_url = f"{base}/api/challenges/decline?token={decline_token}" if decline_token else None
+
+    # Build dual-button CTA block manually so we can include BOTH accept + decline
+    decline_button_html = ""
+    if decline_url:
+        decline_button_html = f"""
+        <a href="{decline_url}"
+           style="background:transparent;color:#A3A3A3;text-decoration:none;border:1px solid #3F3F3F;
+                  font-family:Arial,sans-serif;font-weight:bold;letter-spacing:0.05em;
+                  padding:13px 28px;display:inline-block;margin-left:8px;">
+          DECLINE &amp; REFUND
+        </a>
+        """
+    extra += f"""
+    <div style="margin: 32px 0;">
+      <a href="{accept_url}"
+         style="background:{BRAND_ACCENT};color:#ffffff;text-decoration:none;
+                font-family:Arial,sans-serif;font-weight:bold;letter-spacing:0.05em;
+                padding:14px 28px;display:inline-block;">
+        ACCEPT CHALLENGE
+      </a>
+      {decline_button_html}
+    </div>
+    <p style="margin:0;font-size:12px;color:#777;line-height:1.5;">
+      Declining refunds {stake_amount:.0f} CR to the challenger's wallet immediately. You haven't paid anything yet. This decline link is valid for 7 days.
+    </p>
+    """
+    # Use the inner template without the auto CTA (we built our own dual-button block above)
+    html = _wrap_html(title, intro, None, None, extra)
+    plain_parts = [
+        f"Hey {opponent_username},",
+        "",
+        f"{challenger_username} challenged you to a 1v1 match in {game_name} for {stake_amount:.0f} CR on Gomofos.",
+        "",
+        f"Accept: {accept_url}",
+    ]
+    if decline_url:
+        plain_parts.append(f"Decline & refund: {decline_url}")
+    plain_parts.append("")
+    plain_parts.append("Game on, Mofo.\n— Gomofos")
+    plain = "\n".join(plain_parts)
     await send_email_async(to_email, title, html, plain)
 
 

@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 9 (One-click Decline & Refund for challenge invites) fully verified. Backend pytest 12/12 PASS (test_iter9_decline_refund.py) covering: HTML decline endpoint (valid token refunds challenger only, idempotency, invalid/expired/wrong-uid tokens, started-match no-refund), authenticated POST /challenges/{id}/decline (invitee 200 + refund, challenger 403, missing 404, incoming list filter), and regression on /api/share/tournament/{id} + POST /api/highlights. Frontend Playwright PASS for: dashboard challenge card shows accept-challenge-{id} (red ACCEPT) + decline-challenge-{id} (outlined DECLINE), window.confirm cancel keeps card, window.confirm accept fires POST and shows 'Challenge declined — 33 CR refunded' toast, card is removed from list, wallet refreshes, and ACCEPT navigates to /tournament/{id}.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_decline_refund.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L671 correctly enforces token uid is in tournament.invited_user_ids — a token signed for an outsider returns 'Not your challenge' (status='invalid') and does NOT refund. Verified live.",
+    "server.py L681-689 iterates tournament_participants and refunds each (wallet_balance += stake). Since /api/challenges only inserts the challenger into participants at L615, only the challenger is refunded — matches the product intent of 'invitee never paid in'. Confirmed: invitee wallet stayed at 1000 CR post-decline.",
+    "server.py L675-676 idempotency guard ('declined' -> status='already') prevents the double-refund vector — challenger wallet unchanged on the 2nd click of the same valid token. Solid.",
+    "server.py L714 HTML endpoint is mounted on `app` (not api_router) with literal /api/ prefix so the K8s ingress routes it to backend port 8001 unauthenticated. Correct for one-click email links.",
+    "server.py L763 'reuse core by minting a self token' is clever and DRY, but it does double work (HS256 encode + decode) for what is just an in-process call. Cosmetic — perf is sub-ms. Could be refactored to call a 3-arg variant directly.",
+    "_decline_challenge_core branches on tournament.status: only 'open' refunds, 'declined' returns already, anything else returns 'started'. Note the 'started' message uses status.replace('_',' ') so e.g. 'in progress' / 'completed' all flow through — minor copy nit, technically a completed match shouldn't say 'already started'. Cosmetic.",
+    "Dashboard.js L143-154 wraps the API call in try/catch with toast.error fallback to err.response?.data?.detail — good UX. setChallenges filter + checkAuth refresh keeps both list and wallet badge in sync.",
+    "Dashboard.js L145 window.confirm interpolates challenger username & stake — works but blocks the JS thread (acceptable for a destructive action). A custom modal with the same data-testids would be a UX upgrade.",
+    "ChallengeCreate still requires start_time (ISO-8601) — same pitfall flagged in iteration 8 still applies for any new test author."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9_decline_refund.py (NEW, 12 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "100% (5/5 flows: buttons rendered, cancel keeps card, confirm decline + toast + card removal, incoming filter, ACCEPT navigation)"
+  },
+  "test_credentials": "Admin admin@esportsbet.com / admin123. Test users registered per test as TEST_<prefix>_<uuid>@example.com / Password123. JWT_SECRET pulled from /app/backend/.env for client-side token minting.",
+  "seed_data_creation": "Each backend test class run creates ~6-10 fresh users + 6-8 private tournaments (status open or declined). No cleanup — collections: users, tournaments, tournament_participants, wallet_transactions.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 9 fully working — no code changes were needed. Reusable patterns established in test_iter9_decline_refund.py: (a) jwt.encode(payload, JWT_SECRET, algorithm='HS256') with payload={'tid','uid','type':'decline_challenge','exp':...} mints a server-equivalent decline token client-side (handy for expired / wrong-uid scenarios); (b) the HTML endpoint returns HTTP 200 for ALL outcomes including invalid/expired — assert on the page copy ('Challenge declined' / 'Already declined' / 'Invalid link' / 'Link expired' / 'Match already started') not on status code; (c) only the CHALLENGER's wallet is touched — invitee always stays at the 1000 CR welcome bonus; (d) Dashboard uses native window.confirm — drive it in Playwright via page.once('dialog', lambda d: d.accept()/d.dismiss()) BEFORE the click; (e) /api/challenges/incoming filters status=='open' so declined challenges drop automatically — no extra UI scrub needed. Backend continues to use httpOnly cookie session auth (requests.Session() everywhere).",
+  "rca of the issue": "No bugs found. Only test-script tweak: had to also load /app/frontend/.env to get REACT_APP_BACKEND_URL when running pytest standalone (backend .env doesn't have it). Product code untouched."
+}
