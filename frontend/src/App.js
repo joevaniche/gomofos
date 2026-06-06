@@ -16,6 +16,9 @@ import ProfileEdit from './pages/ProfileEdit';
 import ProfileView from './pages/ProfileView';
 import PlayerSearch from './pages/PlayerSearch';
 import Tournaments from './pages/Tournaments';
+import Competitions from './pages/Competitions';
+import CompetitionDetails from './pages/CompetitionDetails';
+import PublicHighlight from './pages/PublicHighlight';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
@@ -29,10 +32,13 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/h/:id" element={<PublicHighlight />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/games" element={<ProtectedRoute><BrowseGames /></ProtectedRoute>} />
             <Route path="/create-tournament" element={<ProtectedRoute><CreateTournament /></ProtectedRoute>} />
             <Route path="/tournaments" element={<ProtectedRoute><Tournaments /></ProtectedRoute>} />
+            <Route path="/competitions" element={<ProtectedRoute><Competitions /></ProtectedRoute>} />
+            <Route path="/competition/:id" element={<ProtectedRoute><CompetitionDetails /></ProtectedRoute>} />
             <Route path="/tournament/:id" element={<ProtectedRoute><TournamentDetails /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
             <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />

@@ -48,6 +48,10 @@ function BrowseGames() {
 
   const handleAddGame = async (e) => {
     e.preventDefault();
+    if (!newGame.platform || !newGame.platform.trim()) {
+      toast.error('Please select at least one platform');
+      return;
+    }
     try {
       const payload = { ...newGame };
       if (!payload.category) delete payload.category;
@@ -88,6 +92,7 @@ function BrowseGames() {
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
+            <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -159,8 +164,41 @@ function BrowseGames() {
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">PLATFORM(S)</label>
-                  <input data-testid="game-platform-input" type="text" value={newGame.platform} onChange={(e) => setNewGame({...newGame, platform: e.target.value})} required
-                    className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]" placeholder="PC, PS5, Xbox Series" />
+                  <div className="px-3 py-3 bg-[#0A0A0A] border border-[#262626] grid grid-cols-2 gap-2 max-h-48 overflow-y-auto" data-testid="game-platform-multiselect">
+                    {[
+                      'PC',
+                      'PlayStation 5',
+                      'PlayStation 4',
+                      'Xbox Series X|S',
+                      'Xbox One',
+                      'Nintendo Switch',
+                      'Nintendo Switch 2',
+                      'Steam Deck',
+                      'iOS',
+                      'Android',
+                      'Meta Quest',
+                      'Mac',
+                    ].map(p => {
+                      const selected = newGame.platform.split(',').map(s => s.trim()).includes(p);
+                      return (
+                        <label key={p} className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer ${selected ? 'text-white' : 'text-[#A3A3A3]'} hover:text-white`}>
+                          <input
+                            data-testid={`platform-option-${p.replace(/[^a-zA-Z0-9]/g,'-').toLowerCase()}`}
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => {
+                              const current = newGame.platform.split(',').map(s => s.trim()).filter(Boolean);
+                              const next = selected ? current.filter(x => x !== p) : [...current, p];
+                              setNewGame({ ...newGame, platform: next.join(', ') });
+                            }}
+                            className="accent-[#FF3B30]"
+                          />
+                          {p}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-[#A3A3A3] mt-1">{newGame.platform || 'Select at least one platform'}</p>
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">CATEGORY</label>

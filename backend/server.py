@@ -220,6 +220,18 @@ class ChallengeCreate(BaseModel):
     start_time: str
 
 
+# === HEAD-TO-HEAD COMPETITIONS ===
+class CompetitionCreate(BaseModel):
+    opponent_user_id: str
+    game_id: str
+    platform: str
+    stake_per_match: float
+
+class CompetitionMatchLog(BaseModel):
+    winner_user_id: str   # which side won this match
+    notes: Optional[str] = None
+
+
 # Auth endpoints
 @api_router.post("/auth/register", response_model=UserResponse)
 async def register(user_data: UserRegister, response: Response):
@@ -1950,6 +1962,223 @@ async def stripe_webhook(request: Request):
 async def get_wallet_transactions(user: dict = Depends(get_current_user)):
     transactions = await db.wallet_transactions.find({"user_id": user["id"]}).sort("timestamp", -1).to_list(100)
     return [{"id": str(t["_id"]), "amount": t["amount"], "type": t["type"], "reference_type": t["reference_type"], "timestamp": t["timestamp"]} for t in transactions]
+
+# ============ HEAD-TO-HEAD COMPETITIONS ============
+async def _competition_to_dict(comp: dict) -> dict:
+    game = await db.games.find_one({"_id": ObjectId(comp["game_id"])})
+    a = await db.users.find_one({"_id": ObjectId(comp["player_a_id"])})
+    b = await db.users.find_one({"_id": ObjectId(comp["player_b_id"])})
+    return {
+        "id": comp["id"],
+        "player_a_id": comp["player_a_id"],
+        "player_a_username": a["username"] if a else "Unknown",
+        "player_b_id": comp["player_b_id"],
+        "player_b_username": b["username"] if b else "Unknown",
+        "game_id": comp["game_id"],
+        "game_name": game["name"] if game else "Unknown",
+        "platform": comp.get("platform", ""),
+        "stake_per_match": comp["stake_per_match"],
+        "wins_a": comp.get("wins_a", 0),
+        "wins_b": comp.get("wins_b", 0),
+        "total_matches": comp.get("total_matches", 0),
+        "status": comp.get("status", "active"),
+        "created_at": comp["created_at"],
+    }
+
+
+@api_router.post("/competitions")
+async def create_competition(data: CompetitionCreate, user: dict = Depends(get_current_user)):
+    if data.opponent_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="You can't compete against yourself")
+    if data.stake_per_match <= 0:
+        raise HTTPException(status_code=400, detail="Stake must be greater than 0")
+    if not data.platform or not data.platform.strip():
+        raise HTTPException(status_code=400, detail="Platform required")
+    
+    opponent = await db.users.find_one({"_id": ObjectId(data.opponent_user_id)})
+    if not opponent:
+        raise HTTPException(status_code=404, detail="Opponent not found")
+    game = await db.games.find_one({"_id": ObjectId(data.game_id)})
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Prevent duplicate competition between same pair on same game+platform
+    pair_ids = sorted([user["id"], data.opponent_user_id])
+    existing = await db.competitions.find_one({
+        "game_id": data.game_id,
+        "platform": data.platform.strip(),
+        "$or": [
+            {"player_a_id": pair_ids[0], "player_b_id": pair_ids[1]},
+            {"player_a_id": pair_ids[1], "player_b_id": pair_ids[0]},
+        ],
+        "status": "active",
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="A competition with this player on this game/platform already exists")
+    
+    doc = {
+        "id": str(uuid.uuid4()),
+        "player_a_id": user["id"],
+        "player_b_id": data.opponent_user_id,
+        "game_id": data.game_id,
+        "platform": data.platform.strip(),
+        "stake_per_match": data.stake_per_match,
+        "wins_a": 0,
+        "wins_b": 0,
+        "total_matches": 0,
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.competitions.insert_one(doc)
+    return await _competition_to_dict(doc)
+
+
+@api_router.get("/competitions")
+async def list_competitions(user: dict = Depends(get_current_user)):
+    cursor = db.competitions.find({
+        "$or": [{"player_a_id": user["id"]}, {"player_b_id": user["id"]}]
+    }).sort("created_at", -1)
+    items = await cursor.to_list(500)
+    return [await _competition_to_dict(c) for c in items]
+
+
+@api_router.get("/competitions/{comp_id}")
+async def get_competition(comp_id: str, user: dict = Depends(get_current_user)):
+    comp = await db.competitions.find_one({"id": comp_id})
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    if user["id"] not in (comp["player_a_id"], comp["player_b_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    matches = await db.competition_matches.find({"competition_id": comp_id}).sort("created_at", -1).to_list(500)
+    base = await _competition_to_dict(comp)
+    base["matches"] = [
+        {
+            "id": m["id"],
+            "winner_user_id": m["winner_user_id"],
+            "logged_by_id": m["logged_by_id"],
+            "status": m["status"],   # pending_confirmation | confirmed | disputed | cancelled
+            "stake_amount": m["stake_amount"],
+            "notes": m.get("notes"),
+            "created_at": m["created_at"],
+            "resolved_at": m.get("resolved_at"),
+        } for m in matches
+    ]
+    return base
+
+
+@api_router.post("/competitions/{comp_id}/log-match")
+async def log_competition_match(comp_id: str, data: CompetitionMatchLog, user: dict = Depends(get_current_user)):
+    """Player logs a match result (claims a winner). Goes to pending_confirmation
+    until the opponent confirms. No money moves until confirmation."""
+    comp = await db.competitions.find_one({"id": comp_id})
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    if user["id"] not in (comp["player_a_id"], comp["player_b_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    if comp.get("status") != "active":
+        raise HTTPException(status_code=400, detail="Competition is not active")
+    if data.winner_user_id not in (comp["player_a_id"], comp["player_b_id"]):
+        raise HTTPException(status_code=400, detail="Winner must be one of the two players")
+    
+    # Block if there's already a pending match
+    pending = await db.competition_matches.find_one({"competition_id": comp_id, "status": "pending_confirmation"})
+    if pending:
+        raise HTTPException(status_code=400, detail="There's already a match awaiting confirmation")
+    
+    match_doc = {
+        "id": str(uuid.uuid4()),
+        "competition_id": comp_id,
+        "winner_user_id": data.winner_user_id,
+        "logged_by_id": user["id"],
+        "status": "pending_confirmation",
+        "stake_amount": comp["stake_per_match"],
+        "notes": (data.notes or "").strip()[:500],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.competition_matches.insert_one(match_doc)
+    return {"id": match_doc["id"], "status": match_doc["status"]}
+
+
+@api_router.post("/competitions/{comp_id}/matches/{match_id}/confirm")
+async def confirm_competition_match(comp_id: str, match_id: str, user: dict = Depends(get_current_user)):
+    """Opponent confirms the logged match. Stakes transfer from loser to winner."""
+    comp = await db.competitions.find_one({"id": comp_id})
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    if user["id"] not in (comp["player_a_id"], comp["player_b_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    
+    match = await db.competition_matches.find_one({"id": match_id, "competition_id": comp_id})
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if match["status"] != "pending_confirmation":
+        raise HTTPException(status_code=400, detail="Match is not pending confirmation")
+    if match["logged_by_id"] == user["id"]:
+        raise HTTPException(status_code=400, detail="The opponent must confirm, not the player who logged it")
+    
+    winner_id = match["winner_user_id"]
+    loser_id = comp["player_b_id"] if winner_id == comp["player_a_id"] else comp["player_a_id"]
+    stake = match["stake_amount"]
+    
+    # Verify loser has funds
+    loser = await db.users.find_one({"_id": ObjectId(loser_id)})
+    if (loser.get("wallet_balance", 0.0) or 0.0) < stake:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient balance for {loser['username']} (needs {stake} CR). Cannot confirm — please dispute or have them top up."
+        )
+    
+    # Move money
+    await db.users.update_one({"_id": ObjectId(loser_id)}, {"$inc": {"wallet_balance": -stake}})
+    await db.users.update_one({"_id": ObjectId(winner_id)}, {"$inc": {"wallet_balance": stake}})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.wallet_transactions.insert_many([
+        {"user_id": loser_id, "amount": -stake, "type": "debit",
+         "reference_type": "competition_match_loss", "reference_id": match_id, "timestamp": now_iso},
+        {"user_id": winner_id, "amount": stake, "type": "credit",
+         "reference_type": "competition_match_win", "reference_id": match_id, "timestamp": now_iso},
+    ])
+    
+    # Update counters
+    inc = {"total_matches": 1}
+    if winner_id == comp["player_a_id"]:
+        inc["wins_a"] = 1
+    else:
+        inc["wins_b"] = 1
+    await db.competitions.update_one({"id": comp_id}, {"$inc": inc})
+    
+    # Update lifetime stats
+    await db.users.update_one({"_id": ObjectId(winner_id)}, {"$inc": {"total_wins": 1}})
+    await db.users.update_one({"_id": ObjectId(loser_id)}, {"$inc": {"total_losses": 1}})
+    
+    await db.competition_matches.update_one(
+        {"id": match_id},
+        {"$set": {"status": "confirmed", "resolved_at": now_iso}}
+    )
+    return {"status": "confirmed"}
+
+
+@api_router.post("/competitions/{comp_id}/matches/{match_id}/dispute")
+async def dispute_competition_match(comp_id: str, match_id: str, user: dict = Depends(get_current_user)):
+    """Opponent rejects the claim — match is cancelled (no money moves)."""
+    comp = await db.competitions.find_one({"id": comp_id})
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    if user["id"] not in (comp["player_a_id"], comp["player_b_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    match = await db.competition_matches.find_one({"id": match_id, "competition_id": comp_id})
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if match["status"] != "pending_confirmation":
+        raise HTTPException(status_code=400, detail="Match is not pending confirmation")
+    if match["logged_by_id"] == user["id"]:
+        raise HTTPException(status_code=400, detail="The opponent must dispute, not the player who logged it")
+    await db.competition_matches.update_one(
+        {"id": match_id},
+        {"$set": {"status": "cancelled", "resolved_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"status": "cancelled"}
+
 
 # Leaderboard
 @api_router.get("/leaderboard")

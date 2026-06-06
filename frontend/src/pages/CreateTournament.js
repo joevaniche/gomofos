@@ -12,6 +12,8 @@ function CreateTournament() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [games, setGames] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [showAllGames, setShowAllGames] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     game_id: '',
@@ -22,24 +24,49 @@ function CreateTournament() {
   });
 
   useEffect(() => {
-    loadGames();
+    loadProfileAndGames();
     // Set default start time to 1 hour from now
     const now = new Date();
     now.setHours(now.getHours() + 1);
     setFormData(prev => ({ ...prev, start_time: now.toISOString().slice(0, 16) }));
   }, []);
 
-  const loadGames = async () => {
+  const loadProfileAndGames = async () => {
     try {
-      const { data } = await axios.get(`${API}/games`, { withCredentials: true });
-      setGames(data);
-      if (data.length > 0) {
-        const firstPlatforms = (data[0].platform || '').split(',').map(p => p.trim()).filter(Boolean);
-        setFormData(prev => ({ ...prev, game_id: data[0].id, platform: firstPlatforms[0] || '' }));
+      const [profRes, gamesRes] = await Promise.all([
+        axios.get(`${API}/users/me/profile`, { withCredentials: true }),
+        axios.get(`${API}/games`, { withCredentials: true }),
+      ]);
+      setProfile(profRes.data);
+      const allGames = gamesRes.data;
+      const preferredIds = profRes.data?.preferred_game_ids || [];
+      // Filter unless user has none, or they've toggled to show all
+      const filteredGames = preferredIds.length > 0
+        ? allGames.filter(g => preferredIds.includes(g.id))
+        : allGames;
+      setGames(filteredGames);
+      if (filteredGames.length > 0) {
+        const firstPlatforms = (filteredGames[0].platform || '').split(',').map(p => p.trim()).filter(Boolean);
+        setFormData(prev => ({ ...prev, game_id: filteredGames[0].id, platform: firstPlatforms[0] || '' }));
       }
     } catch (e) {
       toast.error('Failed to load games');
     }
+  };
+
+  const toggleShowAll = async () => {
+    try {
+      const { data } = await axios.get(`${API}/games`, { withCredentials: true });
+      const newShow = !showAllGames;
+      setShowAllGames(newShow);
+      const preferredIds = profile?.preferred_game_ids || [];
+      const filtered = newShow || preferredIds.length === 0 ? data : data.filter(g => preferredIds.includes(g.id));
+      setGames(filtered);
+      if (filtered.length > 0) {
+        const platforms = (filtered[0].platform || '').split(',').map(p => p.trim()).filter(Boolean);
+        setFormData(prev => ({ ...prev, game_id: filtered[0].id, platform: platforms[0] || '' }));
+      }
+    } catch {}
   };
 
   const selectedGame = games.find(g => g.id === formData.game_id);
@@ -120,6 +147,7 @@ function CreateTournament() {
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
+            <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -146,7 +174,20 @@ function CreateTournament() {
           <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm p-6">
             <div className="space-y-6">
               <div>
-                <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">SELECT GAME</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">SELECT GAME</label>
+                  {profile && (profile.preferred_game_ids?.length || 0) > 0 && (
+                    <button type="button" onClick={toggleShowAll} data-testid="toggle-show-all-games"
+                      className="text-xs font-bold text-[#A3A3A3] hover:text-[#FF3B30] transition-colors">
+                      {showAllGames ? '◀ SHOW ONLY MY PREFERRED GAMES' : 'SHOW ALL GAMES ▶'}
+                    </button>
+                  )}
+                </div>
+                {profile && (profile.preferred_game_ids?.length || 0) === 0 && (
+                  <div className="mb-2 p-3 bg-[#1A1A1A] border border-[#262626] text-xs text-[#A3A3A3]">
+                    Tip: pick your <Link to="/profile/edit" className="text-[#FF3B30] font-bold hover:underline">preferred games on your profile</Link> to filter this list to just the games you actually play.
+                  </div>
+                )}
                 <select
                   data-testid="tournament-game-select"
                   value={formData.game_id}

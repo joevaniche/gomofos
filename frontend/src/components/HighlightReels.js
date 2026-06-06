@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { VideoCamera, Trash, Play, X, UploadSimple, Eye } from '@phosphor-icons/react';
+import { VideoCamera, Trash, Play, X, UploadSimple, Eye, ShareNetwork, Link as LinkIcon, TwitterLogo, FacebookLogo, InstagramLogo, TiktokLogo } from '@phosphor-icons/react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -85,9 +85,10 @@ export function HighlightReels({ userId, isOwner, games = [] }) {
 }
 
 function ReelCard({ reel, isOwner, onPlay, onDelete }) {
+  const [showShare, setShowShare] = useState(false);
   const fmt = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n;
   return (
-    <div className="border border-[#262626] bg-[#0A0A0A] group" data-testid={`reel-${reel.id}`}>
+    <div className="border border-[#262626] bg-[#0A0A0A] group relative" data-testid={`reel-${reel.id}`}>
       <button onClick={onPlay} className="relative w-full aspect-video bg-black overflow-hidden flex items-center justify-center hover:opacity-90 transition-opacity">
         <video
           src={`${process.env.REACT_APP_BACKEND_URL}${reel.video_url}#t=0.5`}
@@ -110,12 +111,75 @@ function ReelCard({ reel, isOwner, onPlay, onDelete }) {
           <p className="text-xs text-[#A3A3A3] truncate">{reel.game_name || 'Untagged'}</p>
           <p className="text-xs text-[#A3A3A3] flex items-center gap-1"><Eye size={12} weight="bold" /> {fmt(reel.view_count || 0)}</p>
         </div>
-        {isOwner && (
-          <button data-testid={`delete-reel-${reel.id}`} onClick={onDelete}
-            className="mt-2 w-full px-3 py-1.5 bg-transparent border border-[#3F3F3F] text-[#A3A3A3] hover:border-[#EF4444] hover:text-[#EF4444] font-bold text-xs transition-all flex items-center justify-center gap-1">
-            <Trash size={12} weight="bold" /> DELETE
+        <div className="mt-2 flex gap-2">
+          <button data-testid={`share-reel-${reel.id}`} onClick={() => setShowShare(true)}
+            className="flex-1 px-3 py-1.5 bg-[#FF3B30] text-white font-bold text-xs hover:bg-[#D62F26] transition-colors flex items-center justify-center gap-1">
+            <ShareNetwork size={12} weight="bold" /> SHARE
           </button>
-        )}
+          {isOwner && (
+            <button data-testid={`delete-reel-${reel.id}`} onClick={onDelete}
+              className="px-3 py-1.5 bg-transparent border border-[#3F3F3F] text-[#A3A3A3] hover:border-[#EF4444] hover:text-[#EF4444] font-bold text-xs transition-all">
+              <Trash size={12} weight="bold" />
+            </button>
+          )}
+        </div>
+      </div>
+      {showShare && <ShareReelModal reel={reel} onClose={() => setShowShare(false)} />}
+    </div>
+  );
+}
+
+function ShareReelModal({ reel, onClose }) {
+  const shareUrl = `${window.location.origin}/h/${reel.id}`;
+  const shareText = `Check out my highlight on Gomofos: "${reel.title}"`;
+  const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+  const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('Link copied — paste it into Instagram or TikTok bio/DM');
+    } catch {
+      toast.error('Copy failed — long-press the link instead');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose} data-testid="share-reel-modal">
+      <div className="bg-[#141414] border border-[#262626] max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-[#262626]">
+          <div className="flex items-center gap-2">
+            <ShareNetwork size={24} weight="duotone" className="text-[#FF3B30]" />
+            <h3 className="text-xl font-bold" style={{ fontFamily: 'Chivo' }}>SHARE HIGHLIGHT</h3>
+          </div>
+          <button onClick={onClose} className="text-[#A3A3A3] hover:text-white" data-testid="close-share-modal"><X size={24} weight="bold" /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <p className="text-xs text-[#A3A3A3] mb-2">Anyone with the link can watch this clip on Gomofos.</p>
+          <a href={xUrl} target="_blank" rel="noopener noreferrer" data-testid="share-x-btn"
+            className="flex items-center gap-3 px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white hover:border-[#FF3B30] transition-all font-bold">
+            <TwitterLogo size={20} weight="fill" className="text-white" /> SHARE TO X
+          </a>
+          <a href={fbUrl} target="_blank" rel="noopener noreferrer" data-testid="share-fb-btn"
+            className="flex items-center gap-3 px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white hover:border-[#FF3B30] transition-all font-bold">
+            <FacebookLogo size={20} weight="fill" className="text-[#1877F2]" /> SHARE TO FACEBOOK
+          </a>
+          <button onClick={copyLink} data-testid="share-ig-btn"
+            className="w-full flex items-center gap-3 px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white hover:border-[#FF3B30] transition-all font-bold">
+            <InstagramLogo size={20} weight="fill" className="text-[#E4405F]" /> COPY LINK FOR INSTAGRAM
+          </button>
+          <button onClick={copyLink} data-testid="share-tiktok-btn"
+            className="w-full flex items-center gap-3 px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white hover:border-[#FF3B30] transition-all font-bold">
+            <TiktokLogo size={20} weight="fill" className="text-white" /> COPY LINK FOR TIKTOK
+          </button>
+          <button onClick={copyLink} data-testid="copy-link-btn"
+            className="w-full flex items-center gap-3 px-4 py-3 bg-transparent border border-[#3F3F3F] text-[#A3A3A3] hover:border-[#FF3B30] hover:text-[#FF3B30] transition-all font-bold text-sm">
+            <LinkIcon size={16} weight="bold" /> COPY LINK
+          </button>
+          <p className="text-xs text-[#A3A3A3] mt-3 leading-relaxed">
+            Instagram and TikTok don't support direct video posting from the web — paste the link in your bio, story, or DM, or download the clip and upload from their apps.
+          </p>
+        </div>
       </div>
     </div>
   );
