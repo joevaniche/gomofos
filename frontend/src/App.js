@@ -43,7 +43,8 @@ function App() {
             <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
             <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
             <Route path="/players" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfileView /></ProtectedRoute>} />
+            <Route path="/profile/edit" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
             <Route path="/profile/:id" element={<ProtectedRoute><ProfileView /></ProtectedRoute>} />
           </Routes>
           <Toaster position="top-right" />

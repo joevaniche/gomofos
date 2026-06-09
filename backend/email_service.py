@@ -198,3 +198,58 @@ async def send_dispute_alert(*, to_email: str, opponent_username: str, opener_us
         f"{cta_url}\n\n— Gomofos"
     )
     await send_email_async(to_email, title, html, plain)
+
+
+async def send_dispute_admin_alert(*, admin_email: str, dispute_type: str,
+                                   opener_username: str, opener_email: str,
+                                   opponent_username: str, opponent_email: str,
+                                   game_name: str, platform: str,
+                                   stake_amount: float, dispute_id: str,
+                                   review_url: Optional[str] = None,
+                                   extra_context: Optional[str] = None) -> None:
+    """Notify the admin/escalation inbox (e.g. david@gomofos.com) when a dispute is opened."""
+    if not admin_email:
+        return
+    title = f"[GOMOFOS DISPUTE] {dispute_type} — {opener_username} vs {opponent_username}"
+    intro = (f"A dispute has just been opened and needs admin review. "
+             f"<strong style='color:#fff'>{opener_username}</strong> ({opener_email or 'no email'}) "
+             f"is disputing a {dispute_type.lower()} against "
+             f"<strong style='color:#fff'>{opponent_username}</strong> ({opponent_email or 'no email'}).")
+    extra_block = ""
+    if extra_context:
+        extra_block = f"<p style=\"margin:16px 0 0 0;font-size:13px;color:#A3A3A3;\">{extra_context}</p>"
+    platform_suffix = f" — {platform}" if platform else ""
+    extra = f"""
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#141414;border:1px solid #262626;">
+      <tr><td style="padding:16px;">
+        <p style="margin:0;font-size:11px;letter-spacing:0.2em;color:#A3A3A3;font-weight:bold;">DISPUTE TYPE</p>
+        <p style="margin:4px 0 12px 0;font-size:16px;color:#fff;font-weight:bold;">{dispute_type}</p>
+        <p style="margin:0;font-size:11px;letter-spacing:0.2em;color:#A3A3A3;font-weight:bold;">GAME</p>
+        <p style="margin:4px 0 12px 0;font-size:16px;color:#fff;font-weight:bold;">{game_name}{platform_suffix}</p>
+        <p style="margin:0;font-size:11px;letter-spacing:0.2em;color:#A3A3A3;font-weight:bold;">POT AT STAKE</p>
+        <p style="margin:4px 0 12px 0;font-size:22px;color:{BRAND_ACCENT};font-weight:900;">{stake_amount:.0f} CR</p>
+        <p style="margin:0;font-size:11px;letter-spacing:0.2em;color:#A3A3A3;font-weight:bold;">REFERENCE ID</p>
+        <p style="margin:4px 0 0 0;font-family:monospace;font-size:13px;color:#A3A3A3;">{dispute_id}</p>
+      </td></tr>
+    </table>
+    {extra_block}
+    """
+    cta_label = "REVIEW IN DASHBOARD" if review_url else None
+    html = _wrap_html(title, intro, review_url, cta_label, extra)
+    plain = (
+        "GOMOFOS DISPUTE ESCALATION\n"
+        "==========================\n\n"
+        f"Type:      {dispute_type}\n"
+        f"Game:      {game_name}{platform_suffix}\n"
+        f"Stake:     {stake_amount:.0f} CR\n"
+        f"Ref ID:    {dispute_id}\n\n"
+        f"Opener:    {opener_username} <{opener_email or 'no email'}>\n"
+        f"Opponent:  {opponent_username} <{opponent_email or 'no email'}>\n\n"
+    )
+    if extra_context:
+        plain += f"Context: {extra_context}\n\n"
+    if review_url:
+        plain += f"Review: {review_url}\n\n"
+    plain += "— Gomofos Dispute Auto-Forwarder"
+    await send_email_async(admin_email, title, html, plain)
+

@@ -117,9 +117,11 @@ function ChallengeModal({ opponent, currentUserGames, onClose }) {
 }
 
 function ProfileView() {
-  const { id } = useParams();
+  const { id: paramId } = useParams();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  // If no :id is in the URL (visited from the PROFILE nav link), show the current user's profile
+  const id = paramId || user?.id;
   const [profile, setProfile] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
   const [games, setGames] = useState([]);
@@ -208,7 +210,7 @@ function ProfileView() {
               </div>
             </div>
             {isOwnProfile ? (
-              <button data-testid="edit-profile-btn" onClick={() => navigate('/profile')}
+              <button data-testid="edit-profile-btn" onClick={() => navigate('/profile/edit')}
                 className="px-6 py-3 bg-transparent border border-[#3F3F3F] text-white hover:border-[#FF3B30] hover:text-[#FF3B30] font-bold transition-all">
                 EDIT PROFILE
               </button>

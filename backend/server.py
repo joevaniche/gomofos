@@ -22,7 +22,7 @@ import requests
 import asyncio
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
 
-from email_service import send_match_invite, send_dispute_alert
+from email_service import send_match_invite, send_dispute_alert, send_dispute_admin_alert
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -1202,15 +1202,28 @@ async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict =
         # Notify the OTHER participants that the current user just opened a dispute
         opener_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
         opener_username = opener_doc.get("username", "An opponent") if opener_doc else "An opponent"
+        opener_email = opener_doc.get("email", "") if opener_doc else ""
         game = await db.games.find_one({"_id": ObjectId(tournament["game_id"])}) if tournament.get("game_id") else None
         game_name = game["name"] if game else "your match"
+        platform_str = tournament.get("platform") or (game["platform"] if game else "")
         pot = float(tournament.get("stake_amount", 0)) * len(all_participants)
         app_url = os.environ.get("FRONTEND_URL", "https://gomofos.com")
+        # Build a short context line about the latency advantage to help the admin
+        adv_ctx = None
+        if advantage and advantage.get("user_id"):
+            adv_user = await db.users.find_one({"_id": ObjectId(advantage["user_id"])})
+            adv_ctx = (f"Latency tie-breaker advantage: {adv_user['username'] if adv_user else 'unknown'} "
+                       f"(avg {advantage.get('avg_ms','?')}ms — better than threshold)")
+        first_opponent_username = ""
+        first_opponent_email = ""
         for p in all_participants:
             if p["user_id"] == user["id"]:
                 continue
             opponent_doc = await db.users.find_one({"_id": ObjectId(p["user_id"])})
             if opponent_doc and opponent_doc.get("email"):
+                if not first_opponent_username:
+                    first_opponent_username = opponent_doc.get("username", "Mofo")
+                    first_opponent_email = opponent_doc.get("email", "")
                 asyncio.create_task(send_dispute_alert(
                     to_email=opponent_doc["email"],
                     opponent_username=opponent_doc.get("username", "Mofo"),
@@ -1220,6 +1233,23 @@ async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict =
                     tournament_id=tournament_id,
                     app_url=app_url,
                 ))
+        # Forward an escalation copy to the admin/dispute inbox
+        admin_email = os.environ.get("DISPUTE_ALERT_EMAIL", "").strip()
+        if admin_email:
+            asyncio.create_task(send_dispute_admin_alert(
+                admin_email=admin_email,
+                dispute_type="Tournament",
+                opener_username=opener_username,
+                opener_email=opener_email,
+                opponent_username=first_opponent_username or "(multiple opponents)",
+                opponent_email=first_opponent_email,
+                game_name=game_name,
+                platform=platform_str,
+                stake_amount=pot,
+                dispute_id=tournament_id,
+                review_url=f"{app_url.rstrip('/')}/tournament/{tournament_id}",
+                extra_context=adv_ctx,
+            ))
         return {"message": "Players disagreed on winner — dispute created", "status": "disputed", "latency_advantage": advantage}
 
 @api_router.post("/tournaments/{tournament_id}/complete")
@@ -2177,6 +2207,32 @@ async def dispute_competition_match(comp_id: str, match_id: str, user: dict = De
         {"id": match_id},
         {"$set": {"status": "cancelled", "resolved_at": datetime.now(timezone.utc).isoformat()}}
     )
+    # Forward an escalation copy to the admin/dispute inbox
+    admin_email = os.environ.get("DISPUTE_ALERT_EMAIL", "").strip()
+    if admin_email:
+        opener = await db.users.find_one({"_id": ObjectId(user["id"])})
+        logger_user = await db.users.find_one({"_id": ObjectId(match["logged_by_id"])})
+        game = await db.games.find_one({"_id": ObjectId(comp["game_id"])}) if comp.get("game_id") else None
+        claimed_winner = await db.users.find_one({"_id": ObjectId(match["winner_user_id"])})
+        app_url = os.environ.get("FRONTEND_URL", "https://gomofos.com")
+        asyncio.create_task(send_dispute_admin_alert(
+            admin_email=admin_email,
+            dispute_type="Head-to-Head Competition Match",
+            opener_username=(opener.get("username", "Unknown") if opener else "Unknown"),
+            opener_email=(opener.get("email", "") if opener else ""),
+            opponent_username=(logger_user.get("username", "Unknown") if logger_user else "Unknown"),
+            opponent_email=(logger_user.get("email", "") if logger_user else ""),
+            game_name=(game["name"] if game else "Unknown"),
+            platform=comp.get("platform", ""),
+            stake_amount=float(match.get("stake_amount", 0)),
+            dispute_id=f"comp:{comp_id} match:{match_id}",
+            review_url=f"{app_url.rstrip('/')}/competition/{comp_id}",
+            extra_context=(f"{logger_user.get('username', '?') if logger_user else '?'} claimed "
+                           f"{claimed_winner.get('username', '?') if claimed_winner else '?'} won. "
+                           f"{opener.get('username', '?') if opener else '?'} rejected the claim — "
+                           "no money has moved. Notes: "
+                           f"{match.get('notes') or '(none)'}"),
+        ))
     return {"status": "cancelled"}
 
 
