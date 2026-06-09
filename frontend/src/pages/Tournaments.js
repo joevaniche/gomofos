@@ -156,41 +156,57 @@ function Tournaments() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="tournaments-grid">
-            {tournaments.map(t => {
-              const isCreator = t.creator_id === user?.id;
-              const isFull = t.current_players >= t.max_players;
-              const canJoin = !isCreator && !isFull;
-              return (
-                <div key={t.id} className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors"
-                  data-testid={`tournament-card-${t.id}`}>
-                  <div className="p-6 cursor-pointer" onClick={() => navigate(`/tournament/${t.id}`)}>
-                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">{t.game_name}</p>
-                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#007AFF] mb-3">{t.platform}</p>
-                    <h4 className="text-2xl font-black tracking-tighter mb-4" style={{fontFamily: 'Chivo'}}>{t.stake_amount} CR</h4>
-                    <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-[#A3A3A3] flex items-center gap-1"><GameController size={14} weight="bold" />{t.current_players}/{t.max_players}</span>
-                      <span className={`font-bold ${isFull ? 'text-[#A3A3A3]' : 'text-[#22C55E]'}`}>{isFull ? 'FULL' : 'OPEN'}</span>
-                    </div>
-                    <p className="text-xs text-[#A3A3A3]">Host: {t.creator_username}</p>
-                    <p className="text-xs text-[#A3A3A3]">Starts: {new Date(t.start_time).toLocaleString()}</p>
-                  </div>
-                  <div className="border-t border-[#262626] p-3 flex gap-2">
-                    {canJoin ? (
-                      <button data-testid={`join-tournament-${t.id}`} disabled={joiningId === t.id} onClick={() => handleJoin(t)}
-                        className="flex-1 px-4 py-2 bg-[#FF3B30] text-white font-bold text-sm hover:bg-[#D62F26] transition-colors disabled:opacity-50">
-                        {joiningId === t.id ? 'JOINING...' : `JOIN (${t.stake_amount} CR)`}
-                      </button>
-                    ) : (
-                      <button onClick={() => navigate(`/tournament/${t.id}`)}
-                        className="flex-1 px-4 py-2 bg-transparent border border-[#3F3F3F] text-white font-bold text-sm hover:border-[#FF3B30] hover:text-[#FF3B30] transition-all">
-                        {isCreator ? 'YOUR TOURNAMENT' : 'VIEW'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm overflow-x-auto" data-testid="tournaments-table">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#262626] text-left text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">
+                  <th className="px-4 py-3">Opponent</th>
+                  <th className="px-4 py-3">Game</th>
+                  <th className="px-4 py-3">Platform</th>
+                  <th className="px-4 py-3">Date & Time</th>
+                  <th className="px-4 py-3 text-right">Stake</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tournaments.map(t => {
+                  const isCreator = t.creator_id === user?.id;
+                  const isFull = t.current_players >= t.max_players;
+                  const canJoin = !isCreator && !isFull;
+                  const opponentLabel = isCreator
+                    ? `${t.current_players - 1}/${t.max_players - 1} joined`
+                    : (t.max_players > 2
+                        ? `${t.creator_username} +${t.max_players - 2}`
+                        : t.creator_username);
+                  return (
+                    <tr key={t.id} data-testid={`tournament-row-${t.id}`}
+                      className="border-b border-[#262626] hover:bg-[#1A1A1A]/60 transition-colors">
+                      <td className="px-4 py-4 text-white font-bold cursor-pointer" onClick={() => navigate(`/tournament/${t.id}`)}>
+                        {opponentLabel}
+                        {isFull && <span className="ml-2 text-[10px] font-bold text-[#A3A3A3] align-middle">FULL</span>}
+                      </td>
+                      <td className="px-4 py-4 text-[#A3A3A3]">{t.game_name}</td>
+                      <td className="px-4 py-4 text-[#007AFF] font-bold">{t.platform}</td>
+                      <td className="px-4 py-4 text-[#A3A3A3] whitespace-nowrap">{new Date(t.start_time).toLocaleString([], {dateStyle:'medium', timeStyle:'short'})}</td>
+                      <td className="px-4 py-4 text-right text-white font-black tracking-tighter" style={{fontFamily:'Chivo'}}>{t.stake_amount} CR</td>
+                      <td className="px-4 py-4 text-right">
+                        {canJoin ? (
+                          <button data-testid={`join-tournament-${t.id}`} disabled={joiningId === t.id} onClick={() => handleJoin(t)}
+                            className="px-4 py-2 bg-[#FF3B30] text-white font-bold text-xs hover:bg-[#D62F26] transition-colors disabled:opacity-50">
+                            {joiningId === t.id ? 'JOINING...' : 'JOIN'}
+                          </button>
+                        ) : (
+                          <button onClick={() => navigate(`/tournament/${t.id}`)} data-testid={`view-tournament-${t.id}`}
+                            className="px-4 py-2 bg-transparent border border-[#3F3F3F] text-white font-bold text-xs hover:border-[#FF3B30] hover:text-[#FF3B30] transition-all">
+                            {isCreator ? 'YOURS' : 'VIEW'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

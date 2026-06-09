@@ -74,30 +74,47 @@ function Competitions() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="competitions-grid">
-            {competitions.map(c => {
-              const isA = c.player_a_id === user.id;
-              const myWins = isA ? c.wins_a : c.wins_b;
-              const oppWins = isA ? c.wins_b : c.wins_a;
-              const oppName = isA ? c.player_b_username : c.player_a_username;
-              const leading = myWins > oppWins ? 'WINNING' : myWins < oppWins ? 'TRAILING' : 'TIED';
-              const leadingColor = myWins > oppWins ? 'text-[#22C55E]' : myWins < oppWins ? 'text-[#EF4444]' : 'text-[#A3A3A3]';
-              return (
-                <Link key={c.id} to={`/competition/${c.id}`} data-testid={`competition-card-${c.id}`}
-                  className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors p-6 block">
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">{c.game_name}</p>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#007AFF] mb-3">{c.platform}</p>
-                  <p className="text-sm text-white mb-1">vs <span className="font-bold">{oppName}</span></p>
-                  <div className="flex items-end gap-3 mt-3">
-                    <span className="text-4xl font-black tracking-tighter" style={{fontFamily:'Chivo'}}>{myWins}</span>
-                    <span className="text-[#A3A3A3] text-xl mb-1">—</span>
-                    <span className="text-4xl font-black tracking-tighter text-[#A3A3A3]" style={{fontFamily:'Chivo'}}>{oppWins}</span>
-                    <span className={`ml-auto text-xs font-bold ${leadingColor}`}>{leading}</span>
-                  </div>
-                  <p className="text-xs text-[#A3A3A3] mt-3">{c.stake_per_match} CR / match · {c.total_matches} played</p>
-                </Link>
-              );
-            })}
+          <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm overflow-x-auto" data-testid="competitions-table">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#262626] text-left text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">
+                  <th className="px-4 py-3">Opponent</th>
+                  <th className="px-4 py-3">Game</th>
+                  <th className="px-4 py-3">Platform</th>
+                  <th className="px-4 py-3 text-center">W &mdash; L</th>
+                  <th className="px-4 py-3 text-right">Credits Won</th>
+                </tr>
+              </thead>
+              <tbody>
+                {competitions.map(c => {
+                  const isA = c.player_a_id === user.id;
+                  const myWins = isA ? c.wins_a : c.wins_b;
+                  const oppWins = isA ? c.wins_b : c.wins_a;
+                  const oppName = isA ? c.player_b_username : c.player_a_username;
+                  // Net credits won = (wins - losses) * stake_per_match (each confirmed match swings the pot)
+                  const netCredits = (myWins - oppWins) * c.stake_per_match;
+                  const netColor = netCredits > 0 ? 'text-[#22C55E]' : netCredits < 0 ? 'text-[#EF4444]' : 'text-[#A3A3A3]';
+                  const netPrefix = netCredits > 0 ? '+' : '';
+                  return (
+                    <tr key={c.id} data-testid={`competition-row-${c.id}`}
+                      className="border-b border-[#262626] hover:bg-[#1A1A1A]/60 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/competition/${c.id}`)}>
+                      <td className="px-4 py-4 text-white font-bold">{oppName}</td>
+                      <td className="px-4 py-4 text-[#A3A3A3]">{c.game_name}</td>
+                      <td className="px-4 py-4 text-[#007AFF] font-bold">{c.platform}</td>
+                      <td className="px-4 py-4 text-center">
+                        <span className="text-xl font-black tracking-tighter text-white" style={{fontFamily:'Chivo'}}>{myWins}</span>
+                        <span className="text-[#A3A3A3] mx-2">&mdash;</span>
+                        <span className="text-xl font-black tracking-tighter text-[#A3A3A3]" style={{fontFamily:'Chivo'}}>{oppWins}</span>
+                      </td>
+                      <td className={`px-4 py-4 text-right font-black tracking-tighter ${netColor}`} style={{fontFamily:'Chivo'}}>
+                        {netPrefix}{netCredits} CR
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
 
