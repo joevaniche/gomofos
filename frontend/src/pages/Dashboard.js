@@ -63,6 +63,9 @@ function Dashboard() {
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
+            {user?.role === 'admin' && (
+              <Link to="/admin/disputes" className="text-sm font-bold text-[#F59E0B] hover:text-white" data-testid="nav-admin-disputes">DISPUTES</Link>
+            )}
             <Link to="/profile" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-profile">PROFILE</Link>
             <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
               <Coins size={18} weight="bold" />
