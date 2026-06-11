@@ -112,7 +112,11 @@ function Leaderboard() {
                     <div className="col-span-1 flex items-center">
                       {getRankIcon(index)}
                     </div>
-                    <div className="col-span-4 flex items-center">
+                    <div className="col-span-4 flex items-center gap-2">
+                      {(player.equipped_thumbs || []).map((t, i) => (
+                        <img key={i} src={t.thumb_url} alt={t.name} title={t.name}
+                          className="w-6 h-6 object-cover border border-[#262626] flex-shrink-0" />
+                      ))}
                       <span className="font-bold text-white">
                         {player.username}
                         {isCurrentUser && <span className="ml-2 text-xs text-[#FF3B30]">(YOU)</span>}

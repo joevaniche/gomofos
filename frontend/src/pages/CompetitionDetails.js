@@ -73,10 +73,13 @@ function CompetitionDetails() {
   };
 
   const disputeMatch = async (matchId) => {
-    if (!window.confirm('Reject this match result? No money will move and the match will be cancelled.')) return;
+    if (!window.confirm('Reject this match result?\n\nNo money will move and the match will be cancelled. The dispute will be forwarded to admin for review.\n\nIMPORTANT: if you dispute 66% or more of your matches, your account will be auto-suspended for review. Are you sure?')) return;
     try {
-      await axios.post(`${API}/competitions/${id}/matches/${matchId}/dispute`, {}, { withCredentials: true });
-      toast.success('Match cancelled');
+      const { data } = await axios.post(`${API}/competitions/${id}/matches/${matchId}/dispute`, {}, { withCredentials: true });
+      toast.success('Match cancelled — admin notified');
+      if (data?.dispute_threshold_warning) {
+        toast.warning(`Reminder: accounts above ${data.hold_threshold_pct || 66}% dispute rate are auto-suspended.`);
+      }
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to dispute');

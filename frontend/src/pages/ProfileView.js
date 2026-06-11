@@ -369,17 +369,21 @@ function ProfileView() {
               <h3 className="text-xl font-bold" style={{fontFamily:'Chivo'}}>BLING ({inventory.items.length})</h3>
               {isOwnProfile && <Link to="/prizes" className="text-xs font-bold text-[#FF3B30] hover:text-white">⊕ REDEEM MORE</Link>}
             </div>
-            <div className="flex flex-wrap gap-2" data-testid="profile-prizes-grid">
-              {inventory.items.map(i => {
-                const rarityRing = {common:'border-[#A3A3A3]', rare:'border-[#007AFF]', epic:'border-[#A855F7]', legendary:'border-[#F59E0B]'}[i.rarity] || 'border-[#A3A3A3]';
-                return (
-                  <div key={i.inventory_id} title={`${i.name}${i.is_equipped ? ' (equipped)' : ''}`}
-                    className={`border-2 ${rarityRing} ${i.is_equipped ? 'bg-[#0A2615]' : 'bg-[#0A0A0A]'} px-3 py-2 flex items-center gap-2`}>
-                    <span className="text-white text-xs font-bold">{i.name}</span>
-                    {i.is_equipped && <span className="text-[10px] font-bold text-[#22C55E]">✓</span>}
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3" data-testid="profile-prizes-grid">
+              {inventory.items.map(i => (
+                <div key={i.inventory_id}
+                  className={`border ${i.is_equipped ? 'border-[#22C55E]' : 'border-[#262626]'} bg-[#0A0A0A] overflow-hidden`}
+                  title={`${i.name}${i.is_equipped ? ' (equipped)' : ''}`}>
+                  <div className="aspect-square">
+                    {i.image_url ? (
+                      <img src={i.image_url} alt={i.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#3F3F3F] text-xs font-bold">{i.name}</div>
+                    )}
                   </div>
-                );
-              })}
+                  {i.is_equipped && <p className="text-[10px] font-bold text-[#22C55E] uppercase text-center py-1">✓ EQUIPPED</p>}
+                </div>
+              ))}
             </div>
           </div>
         )}

@@ -120,6 +120,10 @@ class UserResponse(BaseModel):
     total_losses: int
     rank: int
     role: Optional[str] = None
+    status: Optional[str] = None        # "active" (default) or "on_hold"
+    on_hold_reason: Optional[str] = None
+    dispute_stats: Optional[dict] = None
+    whatsapp_phone: Optional[str] = None
     created_at: str
 
 class GameCreate(BaseModel):
@@ -192,6 +196,7 @@ class ProfileUpdate(BaseModel):
     preferred_game_ids: Optional[List[str]] = None
     stake_min: Optional[float] = None
     stake_max: Optional[float] = None
+    whatsapp_phone: Optional[str] = None  # E.164 format e.g. +61412345678 — used for reminders
 
 class PublicProfileResponse(BaseModel):
     id: str
@@ -232,18 +237,27 @@ class CompetitionMatchLog(BaseModel):
     notes: Optional[str] = None
 
 
-# === PRIZES / BLING (badges, titles, frames) ===
+# === PRIZES / BLING (images + feat-based unlock) ===
+class PrizeFeat(BaseModel):
+    type: Optional[str] = None       # tournament_wins | h2h_wins | wins_in_genre | streak | net_credits | streak_in_genre
+    count: Optional[int] = None      # threshold value (e.g. 10)
+    genre: Optional[str] = None      # for wins_in_genre / streak_in_genre — matches game.category
+
 class PrizeCreate(BaseModel):
     name: str
-    description: Optional[str] = ""
-    kind: str            # "badge" | "title" | "frame"
     cost: float
-    asset: Optional[str] = ""   # emoji/icon code/colour hex etc — interpretation depends on kind
-    rarity: Optional[str] = "common"   # common | rare | epic | legendary
+    image_url: Optional[str] = ""        # large image displayed on the profile
+    thumb_url: Optional[str] = ""        # small image shown next to player name on leaderboard
+    feat: Optional[PrizeFeat] = None
+    # Legacy/optional fields kept for backward-compat with pre-image catalogue
+    description: Optional[str] = ""
+    kind: Optional[str] = "image"        # always 'image' for new prizes
+    asset: Optional[str] = ""
+    rarity: Optional[str] = "common"
     active: Optional[bool] = True
 
 class PrizeEquip(BaseModel):
-    inventory_id: str       # the user's owned-prize record id; pass empty string to UN-equip the kind
+    inventory_id: str
 
 
 # Auth endpoints
@@ -357,16 +371,24 @@ async def logout(response: Response, user: dict = Depends(get_current_user)):
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
+    # Re-fetch fresh state so on-hold/dispute_stats are up to date
+    fresh = await db.users.find_one({"_id": ObjectId(user["id"])})
+    if not fresh:
+        raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(
-        id=user["id"],
-        email=user["email"],
-        username=user["username"],
-        wallet_balance=user.get("wallet_balance", 0.0),
-        total_wins=user.get("total_wins", 0),
-        total_losses=user.get("total_losses", 0),
-        rank=user.get("rank", 0),
-        role=user.get("role"),
-        created_at=user["created_at"]
+        id=str(fresh["_id"]),
+        email=fresh["email"],
+        username=fresh["username"],
+        wallet_balance=fresh.get("wallet_balance", 0.0),
+        total_wins=fresh.get("total_wins", 0),
+        total_losses=fresh.get("total_losses", 0),
+        rank=fresh.get("rank", 0),
+        role=fresh.get("role"),
+        status=fresh.get("status") or "active",
+        on_hold_reason=fresh.get("on_hold_reason"),
+        dispute_stats=fresh.get("dispute_stats"),
+        whatsapp_phone=fresh.get("whatsapp_phone"),
+        created_at=fresh["created_at"],
     )
 
 @api_router.post("/auth/refresh")
@@ -487,6 +509,13 @@ async def update_profile(profile_data: ProfileUpdate, user: dict = Depends(get_c
             except Exception:
                 raise HTTPException(status_code=400, detail=f"Invalid game id: {gid}")
     
+    # Normalize WhatsApp phone (must be E.164 — starts with + and digits only)
+    if "whatsapp_phone" in update_fields:
+        phone = (update_fields["whatsapp_phone"] or "").strip().replace(" ", "")
+        if phone and not (phone.startswith("+") and phone[1:].isdigit() and 7 <= len(phone[1:]) <= 16):
+            raise HTTPException(status_code=400, detail="WhatsApp number must be in E.164 format (e.g. +61412345678)")
+        update_fields["whatsapp_phone"] = phone
+
     if update_fields:
         await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": update_fields})
     
@@ -1295,6 +1324,12 @@ async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict =
         # Everyone agrees
         winner_id = claims.pop()
         winner_amount = await _award_winner_and_close(tournament_id, winner_id, "auto_agreement")
+        # Recompute dispute status for all participants
+        for p in all_participants:
+            try:
+                await _recompute_user_dispute_status(p["user_id"])
+            except Exception as e:
+                logger.warning(f"dispute recompute failed: {e}")
         return {"message": "Tournament completed (all players agreed)", "status": "completed", "winner_id": winner_id, "winner_amount": winner_amount}
     else:
         # Dispute — capture latency tie-breaker advantage and notify the opponent(s) of the opener
@@ -1358,7 +1393,13 @@ async def submit_result(tournament_id: str, claimed_winner_id: str, user: dict =
                 review_url=f"{app_url.rstrip('/')}/tournament/{tournament_id}",
                 extra_context=adv_ctx,
             ))
-        return {"message": "Players disagreed on winner — dispute created", "status": "disputed", "latency_advantage": advantage}
+        # Recompute dispute status for all participants
+        for p in all_participants:
+            try:
+                await _recompute_user_dispute_status(p["user_id"])
+            except Exception as e:
+                logger.warning(f"dispute recompute failed: {e}")
+        return {"message": "Players disagreed on winner — dispute created", "status": "disputed", "latency_advantage": advantage, "dispute_threshold_warning": True, "hold_threshold_pct": int(DISPUTE_HOLD_THRESHOLD*100)}
 
 @api_router.post("/tournaments/{tournament_id}/complete")
 async def complete_tournament(tournament_id: str, winner_user_id: str, user: dict = Depends(get_current_user)):
@@ -2330,6 +2371,11 @@ async def confirm_competition_match(comp_id: str, match_id: str, user: dict = De
         {"id": match_id},
         {"$set": {"status": "confirmed", "resolved_at": now_iso}}
     )
+    try:
+        await _recompute_user_dispute_status(comp["player_a_id"])
+        await _recompute_user_dispute_status(comp["player_b_id"])
+    except Exception as e:
+        logger.warning(f"dispute recompute failed: {e}")
     return {"status": "confirmed"}
 
 
@@ -2392,7 +2438,12 @@ async def dispute_competition_match(comp_id: str, match_id: str, user: dict = De
                 f"{adv_ctx or ''}"
             ),
         ))
-    return {"status": "cancelled", "latency_advantage": adv}
+    try:
+        await _recompute_user_dispute_status(comp["player_a_id"])
+        await _recompute_user_dispute_status(comp["player_b_id"])
+    except Exception as e:
+        logger.warning(f"dispute recompute failed: {e}")
+    return {"status": "cancelled", "latency_advantage": adv, "dispute_threshold_warning": True, "hold_threshold_pct": int(DISPUTE_HOLD_THRESHOLD*100)}
 
 
 # ============ ADMIN DISPUTE RESOLUTION ============
@@ -2624,34 +2675,235 @@ SEED_PRIZES = [
 ]
 
 
-async def _prize_dict(p: dict) -> dict:
-    return {
+async def _prize_dict(p: dict, with_unlock_for: Optional[str] = None) -> dict:
+    base = {
         "id": p["id"],
         "name": p["name"],
         "description": p.get("description", ""),
-        "kind": p["kind"],
+        "kind": p.get("kind", "image"),
         "cost": p["cost"],
         "asset": p.get("asset", ""),
+        "image_url": p.get("image_url") or "",
+        "thumb_url": p.get("thumb_url") or p.get("image_url") or "",
         "rarity": p.get("rarity", "common"),
+        "feat": p.get("feat") or {},
         "active": p.get("active", True),
         "created_at": p.get("created_at"),
     }
+    if with_unlock_for:
+        unlock = await _check_feat_unlocked(with_unlock_for, base["feat"])
+        base["unlocked"] = unlock["met"]
+        base["progress"] = unlock["progress"]
+        base["target"] = unlock["target"]
+    return base
 
 
+# ---------- Feat tracking ----------
+async def _stats_for_user(user_id: str) -> dict:
+    """Compute running stats for feat checks. Aggregates wins/streaks from tournaments + h2h competitions."""
+    stats = {
+        "tournament_wins": 0,
+        "h2h_wins": 0,
+        "current_streak": 0,
+        "wins_by_genre": {},          # {category: count}
+        "streak_by_genre": {},        # {category: current consecutive wins on that genre}
+        "net_credits": 0.0,
+    }
+    timeline = []   # list of {timestamp, won: bool, genre: str}
+
+    # Tournament completions where user was a participant
+    parts = await db.tournament_participants.find({"user_id": user_id}).to_list(5000)
+    for p in parts:
+        try:
+            t = await db.tournaments.find_one({"_id": ObjectId(p["tournament_id"])})
+        except Exception:
+            continue
+        if not t or t.get("status") != "completed" or not t.get("winner_id"):
+            continue
+        game = await db.games.find_one({"_id": ObjectId(t["game_id"])}) if t.get("game_id") else None
+        genre = (game or {}).get("category") or "Other"
+        won = t["winner_id"] == user_id
+        ts = t.get("completed_at") or t.get("created_at") or ""
+        timeline.append({"ts": ts, "won": won, "genre": genre, "stake": float(t.get("stake_amount", 0)), "n_players": int(t.get("max_players", 2))})
+        if won:
+            stats["tournament_wins"] += 1
+            stats["wins_by_genre"][genre] = stats["wins_by_genre"].get(genre, 0) + 1
+            stats["net_credits"] += float(t.get("stake_amount", 0)) * (int(t.get("max_players", 2)) - 1)
+        else:
+            stats["net_credits"] -= float(t.get("stake_amount", 0))
+
+    # H2H confirmed matches
+    comps = await db.competitions.find({"$or": [{"player_a_id": user_id}, {"player_b_id": user_id}]}).to_list(2000)
+    for c in comps:
+        game = await db.games.find_one({"_id": ObjectId(c["game_id"])}) if c.get("game_id") else None
+        genre = (game or {}).get("category") or "Other"
+        matches = await db.competition_matches.find({"competition_id": c["id"], "status": "confirmed"}).to_list(5000)
+        for m in matches:
+            won = m.get("winner_user_id") == user_id
+            ts = m.get("resolved_at") or m.get("created_at") or ""
+            timeline.append({"ts": ts, "won": won, "genre": genre, "stake": float(m.get("stake_amount", 0))})
+            if won:
+                stats["h2h_wins"] += 1
+                stats["wins_by_genre"][genre] = stats["wins_by_genre"].get(genre, 0) + 1
+                stats["net_credits"] += float(m.get("stake_amount", 0))
+            else:
+                stats["net_credits"] -= float(m.get("stake_amount", 0))
+
+    # Sort timeline ascending for streak detection
+    timeline.sort(key=lambda x: x["ts"])
+    current_streak = 0
+    streak_by_genre: Dict[str, int] = {}
+    longest_streak_by_genre: Dict[str, int] = {}
+    for e in timeline:
+        if e["won"]:
+            current_streak += 1
+            streak_by_genre[e["genre"]] = streak_by_genre.get(e["genre"], 0) + 1
+            longest_streak_by_genre[e["genre"]] = max(longest_streak_by_genre.get(e["genre"], 0), streak_by_genre[e["genre"]])
+        else:
+            current_streak = 0
+            streak_by_genre[e["genre"]] = 0
+    stats["current_streak"] = current_streak
+    # For streak feats, also expose longest ever (so prizes can be retroactively unlocked)
+    stats["streak_by_genre"] = longest_streak_by_genre
+    return stats
+
+
+async def _check_feat_unlocked(user_id: str, feat: dict) -> dict:
+    """Returns {met: bool, progress: int|float, target: int|float} for a prize feat."""
+    if not feat or not feat.get("type"):
+        return {"met": True, "progress": 0, "target": 0}
+    stats = await _stats_for_user(user_id)
+    ftype = feat.get("type")
+    target = float(feat.get("count") or 0)
+    genre = (feat.get("genre") or "").strip()
+    progress = 0.0
+    if ftype == "tournament_wins":
+        progress = stats["tournament_wins"]
+    elif ftype == "h2h_wins":
+        progress = stats["h2h_wins"]
+    elif ftype == "wins_in_genre":
+        progress = stats["wins_by_genre"].get(genre, 0)
+    elif ftype == "streak":
+        progress = stats["current_streak"]
+    elif ftype == "streak_in_genre":
+        progress = stats["streak_by_genre"].get(genre, 0)
+    elif ftype == "net_credits":
+        progress = stats["net_credits"]
+    return {"met": progress >= target, "progress": progress, "target": target}
+
+
+# ---------- Default prize catalog (image placeholders — admin re-uploads images later) ----------
+SEED_PRIZES = [
+    # ─── Tournament-wins feats ───────────────────────────────────────────────
+    {"name": "FIRST WIN",      "cost": 100,  "feat": {"type": "tournament_wins", "count": 1}},
+    {"name": "FIVE STACK",     "cost": 500,  "feat": {"type": "tournament_wins", "count": 5}},
+    {"name": "TEN HUNTER",     "cost": 1200, "feat": {"type": "tournament_wins", "count": 10}},
+    {"name": "TOURNEY KING",   "cost": 3000, "feat": {"type": "tournament_wins", "count": 25}},
+    # ─── H2H wins ────────────────────────────────────────────────────────────
+    {"name": "RIVAL SLAYER",   "cost": 600,  "feat": {"type": "h2h_wins", "count": 10}},
+    {"name": "MOFO MENACE",    "cost": 1500, "feat": {"type": "h2h_wins", "count": 25}},
+    # ─── Genre streaks (user-requested 3) ────────────────────────────────────
+    {"name": "ASPHALT ASSASSIN","cost": 2000, "feat": {"type": "streak_in_genre", "count": 10, "genre": "Racing"}},
+    {"name": "TRIGGER FINGER",  "cost": 2000, "feat": {"type": "streak_in_genre", "count": 10, "genre": "FPS"}},
+    {"name": "STRATEGIST",      "cost": 2000, "feat": {"type": "streak_in_genre", "count": 10, "genre": "Strategy"}},
+    # ─── Streak agnostic + net credits ───────────────────────────────────────
+    {"name": "ON FIRE",         "cost": 1500, "feat": {"type": "streak", "count": 5}},
+    {"name": "BIG SPENDER",     "cost": 1000, "feat": {"type": "net_credits", "count": 5000}},
+    {"name": "GOAT",            "cost": 5000, "feat": {"type": "net_credits", "count": 25000}},
+]
+
+
+# ---------- Account-hold (dispute-rate) ----------
+DISPUTE_HOLD_THRESHOLD = 0.66        # 66 %
+DISPUTE_HOLD_MIN_MATCHES = 3         # need at least 3 decided matches before suspending
+
+
+async def _recompute_user_dispute_status(user_id: str):
+    """Recompute whether a user's account should be on hold based on their dispute rate.
+    Called whenever a tournament/competition match resolves or is disputed."""
+    # Count decided matches (completed tournaments + confirmed comp matches the user was in)
+    decided = 0
+    disputed = 0
+
+    # Tournaments
+    parts = await db.tournament_participants.find({"user_id": user_id}).to_list(5000)
+    for p in parts:
+        try:
+            t = await db.tournaments.find_one({"_id": ObjectId(p["tournament_id"])})
+        except Exception:
+            continue
+        if not t:
+            continue
+        if t.get("status") == "disputed":
+            disputed += 1
+            decided += 1
+        elif t.get("status") == "completed":
+            decided += 1
+
+    # Competitions
+    comps = await db.competitions.find({"$or": [{"player_a_id": user_id}, {"player_b_id": user_id}]}).to_list(2000)
+    for c in comps:
+        ms = await db.competition_matches.find({"competition_id": c["id"]}).to_list(5000)
+        for m in ms:
+            if m.get("status") == "confirmed":
+                decided += 1
+            elif m.get("status") == "cancelled":
+                # cancelled = the opponent rejected the claim → dispute
+                decided += 1
+                disputed += 1
+
+    rate = (disputed / decided) if decided > 0 else 0.0
+    should_hold = decided >= DISPUTE_HOLD_MIN_MATCHES and rate >= DISPUTE_HOLD_THRESHOLD
+    update = {
+        "$set": {
+            "dispute_stats": {
+                "decided": decided,
+                "disputed": disputed,
+                "rate": round(rate, 3),
+            }
+        }
+    }
+    user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    cur_status = (user_doc or {}).get("status")
+    if should_hold and cur_status != "on_hold":
+        update["$set"]["status"] = "on_hold"
+        update["$set"]["on_hold_reason"] = (
+            f"Auto-suspended: {disputed}/{decided} matches resolved as disputes ({int(rate*100)}%). "
+            "Account is paused pending admin review."
+        )
+        update["$set"]["on_hold_at"] = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"_id": ObjectId(user_id)}, update)
+    return {"decided": decided, "disputed": disputed, "rate": rate, "on_hold": should_hold}
+
+
+@api_router.post("/admin/users/{user_id}/unhold")
+async def admin_release_hold(user_id: str, user: dict = Depends(get_current_user)):
+    await _require_admin(user)
+    await db.users.update_one({"_id": ObjectId(user_id)},
+        {"$set": {"status": "active"}, "$unset": {"on_hold_reason": "", "on_hold_at": ""}})
+    return {"status": "active"}
+
+
+# ---------- Prize endpoints (NEW + replaces the old badge/title/frame ones) ----------
 @api_router.post("/admin/prizes/seed")
 async def seed_prizes(user: dict = Depends(get_current_user)):
-    """Idempotent: inserts the starter prize catalog if not already present."""
     await _require_admin(user)
     created = 0
     for p in SEED_PRIZES:
-        existing = await db.prizes.find_one({"name": p["name"], "kind": p["kind"]})
+        existing = await db.prizes.find_one({"name": p["name"]})
         if existing:
             continue
         doc = {
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc).isoformat(),
-            **p,
+            "kind": "image",
+            "image_url": "",
+            "thumb_url": "",
+            "asset": "",
+            "rarity": "common",
+            "description": "",
             "active": True,
+            **p,
         }
         await db.prizes.insert_one(doc)
         created += 1
@@ -2660,72 +2912,109 @@ async def seed_prizes(user: dict = Depends(get_current_user)):
 
 @api_router.get("/prizes")
 async def list_prizes(kind: Optional[str] = None, current: dict = Depends(get_current_user)):
-    """Catalog of redeemable prizes. Filter by kind: badge | title | frame."""
-    query = {"active": True}
+    """Catalog of redeemable prizes with per-user unlock state."""
+    query: Dict[str, Any] = {"active": True}
     if kind:
         query["kind"] = kind
-    cursor = db.prizes.find(query).sort([("kind", 1), ("cost", 1)])
+    cursor = db.prizes.find(query).sort([("cost", 1)])
     items = await cursor.to_list(500)
-    return [await _prize_dict(p) for p in items]
+    return [await _prize_dict(p, with_unlock_for=current["id"]) for p in items]
 
 
 @api_router.post("/admin/prizes")
 async def admin_create_prize(payload: PrizeCreate, user: dict = Depends(get_current_user)):
     await _require_admin(user)
-    if payload.kind not in {"badge", "title", "frame"}:
-        raise HTTPException(status_code=400, detail="kind must be one of: badge, title, frame")
     if payload.cost <= 0:
         raise HTTPException(status_code=400, detail="cost must be > 0")
+    feat_doc = payload.feat.model_dump() if payload.feat else None
+    if feat_doc and feat_doc.get("type") not in (None, "", "tournament_wins", "h2h_wins", "wins_in_genre", "streak", "streak_in_genre", "net_credits"):
+        raise HTTPException(status_code=400, detail="Unknown feat type")
     doc = {
         "id": str(uuid.uuid4()),
         "name": payload.name.strip()[:80],
         "description": (payload.description or "").strip()[:300],
-        "kind": payload.kind,
+        "kind": "image",
         "cost": float(payload.cost),
         "asset": (payload.asset or "").strip()[:80],
+        "image_url": (payload.image_url or "").strip()[:500],
+        "thumb_url": (payload.thumb_url or "").strip()[:500],
         "rarity": (payload.rarity or "common").strip()[:20],
+        "feat": feat_doc,
         "active": True if payload.active is None else bool(payload.active),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.prizes.insert_one(doc)
-    return await _prize_dict(doc)
+    return await _prize_dict(doc, with_unlock_for=user["id"])
 
 
 @api_router.patch("/admin/prizes/{prize_id}")
 async def admin_update_prize(prize_id: str, payload: PrizeCreate, user: dict = Depends(get_current_user)):
     await _require_admin(user)
+    feat_doc = payload.feat.model_dump() if payload.feat else None
     update = {
         "name": payload.name.strip()[:80],
         "description": (payload.description or "").strip()[:300],
-        "kind": payload.kind,
+        "kind": "image",
         "cost": float(payload.cost),
         "asset": (payload.asset or "").strip()[:80],
+        "image_url": (payload.image_url or "").strip()[:500],
+        "thumb_url": (payload.thumb_url or "").strip()[:500],
         "rarity": (payload.rarity or "common").strip()[:20],
+        "feat": feat_doc,
         "active": bool(payload.active),
     }
     res = await db.prizes.update_one({"id": prize_id}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Prize not found")
     doc = await db.prizes.find_one({"id": prize_id})
-    return await _prize_dict(doc)
+    return await _prize_dict(doc, with_unlock_for=user["id"])
 
 
 @api_router.delete("/admin/prizes/{prize_id}")
 async def admin_delete_prize(prize_id: str, user: dict = Depends(get_current_user)):
     await _require_admin(user)
-    # Soft-disable rather than truly deleting (users may still own copies)
     res = await db.prizes.update_one({"id": prize_id}, {"$set": {"active": False}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Prize not found")
     return {"status": "disabled"}
 
 
+@api_router.post("/admin/prize-image")
+async def admin_upload_prize_image(
+    file: UploadFile = File(...),
+    kind: str = "main",        # "main" or "thumb"
+    user: dict = Depends(get_current_user)
+):
+    """Uploads a prize image, returns the public URL the admin should paste into image_url/thumb_url."""
+    await _require_admin(user)
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 8 MB)")
+    ext = (file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "png").lower()
+    if ext not in ("png", "jpg", "jpeg", "webp", "gif"):
+        raise HTTPException(status_code=400, detail="Only png/jpg/jpeg/webp/gif allowed")
+    obj_path = f"prize-images/{kind}-{uuid.uuid4().hex}.{ext}"
+    put_object(obj_path, data, file.content_type or f"image/{ext}")
+    return {"url": f"/api/storage/{obj_path}"}
+
+
+@api_router.get("/storage/{path:path}")
+async def serve_storage(path: str):
+    """Public file server for uploaded prize/profile images. No auth so <img src> works everywhere."""
+    data, ct = get_object(path)
+    return Response(content=data, media_type=ct)
+
+
 @api_router.post("/prizes/{prize_id}/redeem")
 async def redeem_prize(prize_id: str, user: dict = Depends(get_current_user)):
-    """Deduct cost from wallet and give the user the prize. One-of-each-prize per user."""
     prize = await db.prizes.find_one({"id": prize_id, "active": True})
     if not prize:
         raise HTTPException(status_code=404, detail="Prize not found or no longer available")
+    # FEAT GATE: must satisfy the unlock requirement
+    unlock = await _check_feat_unlocked(user["id"], prize.get("feat") or {})
+    if not unlock["met"]:
+        raise HTTPException(status_code=403,
+            detail=f"Locked — earn {int(unlock['target'])} (you have {int(unlock['progress'])}) to unlock this prize.")
     already_owned = await db.user_prizes.find_one({"user_id": user["id"], "prize_id": prize_id})
     if already_owned:
         raise HTTPException(status_code=400, detail="You already own this prize")
@@ -2740,23 +3029,17 @@ async def redeem_prize(prize_id: str, user: dict = Depends(get_current_user)):
         "id": inv_id,
         "user_id": user["id"],
         "prize_id": prize_id,
-        "prize_kind": prize["kind"],
         "redeemed_at": now_iso,
     })
     await db.wallet_transactions.insert_one({
-        "user_id": user["id"],
-        "amount": -float(prize["cost"]),
-        "type": "debit",
-        "reference_type": "prize_redeem",
-        "reference_id": prize_id,
-        "timestamp": now_iso,
+        "user_id": user["id"], "amount": -float(prize["cost"]), "type": "debit",
+        "reference_type": "prize_redeem", "reference_id": prize_id, "timestamp": now_iso,
     })
     return {"inventory_id": inv_id, "remaining_balance": bal - float(prize["cost"])}
 
 
 @api_router.get("/users/{user_id}/inventory")
 async def get_user_inventory(user_id: str, current: dict = Depends(get_current_user)):
-    """All prizes a user owns + which ones they have equipped."""
     items = await db.user_prizes.find({"user_id": user_id}).to_list(500)
     user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
     equipped = (user_doc or {}).get("equipped_prizes", {}) or {}
@@ -2769,29 +3052,31 @@ async def get_user_inventory(user_id: str, current: dict = Depends(get_current_u
             "inventory_id": inv["id"],
             "prize_id": prize["id"],
             "name": prize["name"],
-            "kind": prize["kind"],
+            "kind": prize.get("kind", "image"),
+            "image_url": prize.get("image_url") or "",
+            "thumb_url": prize.get("thumb_url") or prize.get("image_url") or "",
             "asset": prize.get("asset", ""),
             "rarity": prize.get("rarity", "common"),
-            "description": prize.get("description", ""),
+            "feat": prize.get("feat") or {},
             "redeemed_at": inv.get("redeemed_at"),
-            "is_equipped": equipped.get(prize["kind"]) == inv["id"],
+            "is_equipped": prize["id"] in equipped.values() if isinstance(equipped, dict) else False,
         })
     return {"user_id": user_id, "equipped": equipped, "items": out}
 
 
 @api_router.post("/users/me/equip")
 async def equip_prize(payload: PrizeEquip, user: dict = Depends(get_current_user)):
-    """Equip a prize the user owns, or pass inventory_id='' to UN-equip the current pick for that kind."""
     user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
     equipped = (user_doc or {}).get("equipped_prizes", {}) or {}
     if not payload.inventory_id:
-        # Need to know which kind to clear — caller should supply via inventory_id="title:" form? Simpler: clear all empty
-        # Make it explicit: empty means "no change" — caller should call /unequip/{kind} instead.
-        raise HTTPException(status_code=400, detail="inventory_id required (use /users/me/unequip/{kind} to clear)")
+        raise HTTPException(status_code=400, detail="inventory_id required")
     inv = await db.user_prizes.find_one({"id": payload.inventory_id, "user_id": user["id"]})
     if not inv:
         raise HTTPException(status_code=404, detail="You don't own this prize")
-    equipped[inv["prize_kind"]] = payload.inventory_id
+    prize = await db.prizes.find_one({"id": inv["prize_id"]})
+    if not prize:
+        raise HTTPException(status_code=404, detail="Prize not found")
+    equipped[prize.get("kind", "image")] = payload.inventory_id
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"equipped_prizes": equipped}})
     return {"equipped": equipped}
 
@@ -2805,11 +3090,125 @@ async def unequip_prize(kind: str, user: dict = Depends(get_current_user)):
     return {"equipped": equipped}
 
 
+# ============ WHATSAPP / SMS REMINDERS (Twilio) ============
+def _twilio_client():
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    if not sid or not token:
+        return None
+    try:
+        from twilio.rest import Client
+        return Client(sid, token)
+    except ImportError:
+        return None
+
+
+async def _send_whatsapp(to_phone: str, body: str) -> bool:
+    """Fire-and-forget WhatsApp message via Twilio. Returns True on success."""
+    cli = _twilio_client()
+    if not cli or not to_phone:
+        return False
+    sender = os.environ.get("TWILIO_WHATSAPP_FROM", "").strip()
+    if not sender:
+        return False
+    try:
+        cli.messages.create(
+            from_=f"whatsapp:{sender}" if not sender.startswith("whatsapp:") else sender,
+            to=f"whatsapp:{to_phone}" if not to_phone.startswith("whatsapp:") else to_phone,
+            body=body,
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"WhatsApp send failed: {e}")
+        return False
+
+
+async def _reminder_scheduler_loop():
+    """Background task: every 60s, find tournaments starting in 24h or 1h and notify participants
+    via WhatsApp. Each (tournament, reminder_window) is sent only once."""
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            # Look at tournaments starting between now and 25 hours from now
+            cutoff = (now + timedelta(hours=25)).isoformat()
+            cursor = db.tournaments.find({
+                "status": {"$in": ["open", "in_progress"]},
+                "start_time": {"$lte": cutoff, "$gte": now.isoformat()},
+            })
+            tournaments = await cursor.to_list(500)
+            for t in tournaments:
+                try:
+                    start = datetime.fromisoformat(t["start_time"])
+                    if start.tzinfo is None:
+                        start = start.replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                mins_until = (start - now).total_seconds() / 60.0
+                sent = t.get("reminders_sent") or []
+                # 24h window: 23.0–24.5 h before start
+                if 23 * 60 <= mins_until <= 24.5 * 60 and "24h" not in sent:
+                    await _dispatch_tournament_reminder(t, "24h")
+                    await db.tournaments.update_one({"_id": t["_id"]}, {"$addToSet": {"reminders_sent": "24h"}})
+                # 1h window: 50–75 min before start
+                if 50 <= mins_until <= 75 and "1h" not in sent:
+                    await _dispatch_tournament_reminder(t, "1h")
+                    await db.tournaments.update_one({"_id": t["_id"]}, {"$addToSet": {"reminders_sent": "1h"}})
+        except Exception as e:
+            logger.warning(f"reminder loop error: {e}")
+        await asyncio.sleep(60)
+
+
+async def _dispatch_tournament_reminder(t: dict, window: str):
+    """Send a single reminder message to every participant in tournament t."""
+    game = await db.games.find_one({"_id": ObjectId(t["game_id"])}) if t.get("game_id") else None
+    game_name = (game or {}).get("name", "Match")
+    parts = await db.tournament_participants.find({"tournament_id": str(t["_id"])}).to_list(100)
+    when_label = "in 24 hours" if window == "24h" else "in about 1 hour"
+    app_url = os.environ.get("FRONTEND_URL", "https://gomofos.com")
+    for p in parts:
+        u = await db.users.find_one({"_id": ObjectId(p["user_id"])})
+        if not u:
+            continue
+        phone = (u.get("whatsapp_phone") or u.get("phone") or "").strip()
+        if not phone:
+            continue
+        body = (
+            f"🎮 GOMOFOS reminder: your {game_name} tournament starts {when_label}.\n\n"
+            f"Stake: {t.get('stake_amount', 0)} CR\n"
+            f"Players: {t.get('current_players', 1)}/{t.get('max_players', 2)}\n\n"
+            f"Open: {app_url.rstrip('/')}/tournament/{t['_id']}"
+        )
+        await _send_whatsapp(phone, body)
+
+
 # Leaderboard
 @api_router.get("/leaderboard")
 async def get_leaderboard():
-    users = await db.users.find({}, {"_id": 1, "username": 1, "total_wins": 1, "total_losses": 1, "wallet_balance": 1}).sort("total_wins", -1).limit(50).to_list(50)
-    return [{"user_id": str(u["_id"]), "username": u["username"], "wins": u.get("total_wins", 0), "losses": u.get("total_losses", 0), "balance": u.get("wallet_balance", 0.0)} for u in users]
+    users = await db.users.find({}, {"_id": 1, "username": 1, "total_wins": 1, "total_losses": 1, "wallet_balance": 1, "equipped_prizes": 1}).sort("total_wins", -1).limit(50).to_list(50)
+    result = []
+    for u in users:
+        # Resolve equipped prize thumbnails — show every equipped prize's tiny icon next to the name
+        equipped_thumbs = []
+        equipped = (u.get("equipped_prizes") or {}) if isinstance(u.get("equipped_prizes"), dict) else {}
+        for inv_id in set(equipped.values()):
+            inv = await db.user_prizes.find_one({"id": inv_id, "user_id": str(u["_id"])})
+            if not inv:
+                continue
+            prize = await db.prizes.find_one({"id": inv["prize_id"]})
+            if not prize:
+                continue
+            thumb = prize.get("thumb_url") or prize.get("image_url")
+            if thumb:
+                equipped_thumbs.append({"name": prize["name"], "thumb_url": thumb})
+        result.append({
+            "user_id": str(u["_id"]),
+            "username": u["username"],
+            "wins": u.get("total_wins", 0),
+            "losses": u.get("total_losses", 0),
+            "balance": u.get("wallet_balance", 0.0),
+            "equipped_thumbs": equipped_thumbs,
+        })
+    return result
 
 # Include router
 app.include_router(api_router)
@@ -2849,6 +3248,13 @@ async def startup_event():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
+
+    # Kick off the reminder scheduler in the background
+    try:
+        asyncio.create_task(_reminder_scheduler_loop())
+        logger.info("Reminder scheduler started")
+    except Exception as e:
+        logger.warning(f"Reminder scheduler failed to start: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

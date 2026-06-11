@@ -81,6 +81,13 @@ function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto p-6">
+        {user?.status === 'on_hold' && (
+          <div className="border border-[#EF4444] bg-[#EF4444]/10 p-4 mb-6" data-testid="account-on-hold-banner">
+            <p className="text-sm font-bold text-[#EF4444] mb-1">⚠ ACCOUNT ON HOLD</p>
+            <p className="text-sm text-white">{user.on_hold_reason || 'Your account is paused pending admin review.'}</p>
+            <p className="text-xs text-[#A3A3A3] mt-2">Contact <a href="mailto:david@gomofos.com" className="text-[#FF3B30] underline">david@gomofos.com</a> to request a review.</p>
+          </div>
+        )}
         {/* User Info */}
         <div className="mb-8">
           <h2 className="text-3xl font-black tracking-tighter text-white mb-2" style={{fontFamily: 'Chivo'}}>

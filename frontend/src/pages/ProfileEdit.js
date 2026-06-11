@@ -29,7 +29,7 @@ function ProfileEdit() {
   const [profile, setProfile] = useState({
     bio: '', country: '', city: '', timezone: '',
     platforms: [], gamertags: {}, preferred_game_ids: [],
-    stake_min: '', stake_max: '',
+    stake_min: '', stake_max: '', whatsapp_phone: '',
   });
 
   useEffect(() => { loadAll(); }, []);
@@ -52,6 +52,7 @@ function ProfileEdit() {
         preferred_game_ids: p.data.preferred_game_ids || [],
         stake_min: p.data.stake_min ?? '',
         stake_max: p.data.stake_max ?? '',
+        whatsapp_phone: user?.whatsapp_phone || '',
       });
       setCountries(c.data);
       setPlatformsList(pl.data);
@@ -84,6 +85,7 @@ function ProfileEdit() {
         ...profile,
         stake_min: profile.stake_min === '' ? null : parseFloat(profile.stake_min),
         stake_max: profile.stake_max === '' ? null : parseFloat(profile.stake_max),
+        whatsapp_phone: (profile.whatsapp_phone || '').trim() || null,
       };
       await axios.put(`${API}/users/profile`, payload, { withCredentials: true });
       toast.success('Profile saved');
@@ -270,6 +272,17 @@ function ProfileEdit() {
                   placeholder="1000" />
               </div>
             </div>
+          </section>
+
+          <section className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="section-notifications">
+            <h2 className="text-xl font-bold mb-1" style={{fontFamily:'Chivo'}}>MATCH REMINDERS</h2>
+            <p className="text-xs text-[#A3A3A3] mb-4">Add your WhatsApp number to get a reminder 24 hours and 1 hour before any match you're booked in.</p>
+            <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] block mb-2">WHATSAPP NUMBER (E.164 format)</label>
+            <input data-testid="whatsapp-phone-input" type="tel" value={profile.whatsapp_phone}
+              onChange={(e) => setProfile({...profile, whatsapp_phone: e.target.value})}
+              placeholder="+61412345678"
+              className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#262626] text-white focus:outline-none focus:ring-1 focus:ring-[#FF3B30] focus:border-[#FF3B30]" />
+            <p className="text-[10px] text-[#A3A3A3] mt-2">Leave blank to disable WhatsApp reminders. Include country code with a leading +.</p>
           </section>
 
           <div className="flex gap-4">
