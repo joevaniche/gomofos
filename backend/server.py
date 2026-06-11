@@ -232,6 +232,20 @@ class CompetitionMatchLog(BaseModel):
     notes: Optional[str] = None
 
 
+# === PRIZES / BLING (badges, titles, frames) ===
+class PrizeCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    kind: str            # "badge" | "title" | "frame"
+    cost: float
+    asset: Optional[str] = ""   # emoji/icon code/colour hex etc — interpretation depends on kind
+    rarity: Optional[str] = "common"   # common | rare | epic | legendary
+    active: Optional[bool] = True
+
+class PrizeEquip(BaseModel):
+    inventory_id: str       # the user's owned-prize record id; pass empty string to UN-equip the kind
+
+
 # Auth endpoints
 @api_router.post("/auth/register", response_model=UserResponse)
 async def register(user_data: UserRegister, response: Response):
@@ -538,6 +552,100 @@ async def search_users(
         profile["is_online"] = bool(profile.get("last_active_at") and profile["last_active_at"] >= online_cutoff)
         results.append(profile)
     return results
+
+@api_router.get("/users/{user_id}/stats-by-game")
+async def get_user_stats_by_game(user_id: str, current: dict = Depends(get_current_user)):
+    """Aggregate per-game wins/losses + net credits won/lost for a user. Sourced from
+    completed tournaments and confirmed head-to-head competition matches."""
+    # Verify the user exists
+    try:
+        target = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    stats: Dict[str, Dict[str, Any]] = {}
+
+    def _row(game_id: str, game_name: str, platform: str = ""):
+        key = game_id
+        if key not in stats:
+            stats[key] = {
+                "game_id": game_id,
+                "game_name": game_name,
+                "platform": platform,
+                "wins": 0,
+                "losses": 0,
+                "credits_won": 0.0,
+                "credits_lost": 0.0,
+            }
+        return stats[key]
+
+    # --- Tournaments (completed) ---
+    parts = await db.tournament_participants.find({"user_id": user_id}).to_list(2000)
+    for p in parts:
+        try:
+            t = await db.tournaments.find_one({"_id": ObjectId(p["tournament_id"])})
+        except Exception:
+            continue
+        if not t or t.get("status") not in ("completed",):
+            continue
+        if not t.get("winner_id"):
+            continue
+        game = await db.games.find_one({"_id": ObjectId(t["game_id"])}) if t.get("game_id") else None
+        game_id = t["game_id"]
+        game_name = game.get("name") if game else "Unknown"
+        platform = t.get("platform") or (game.get("platform") if game else "")
+        row = _row(game_id, game_name, platform)
+        stake = float(t.get("stake_amount", 0))
+        n_players = int(t.get("max_players", 2))
+        if t["winner_id"] == user_id:
+            row["wins"] += 1
+            # Winner takes whole pot, but their own stake was already paid up-front
+            row["credits_won"] += stake * (n_players - 1)
+        else:
+            row["losses"] += 1
+            row["credits_lost"] += stake
+
+    # --- Head-to-head competition matches (confirmed) ---
+    comps = await db.competitions.find({
+        "$or": [{"player_a_id": user_id}, {"player_b_id": user_id}]
+    }).to_list(2000)
+    for c in comps:
+        game = await db.games.find_one({"_id": ObjectId(c["game_id"])}) if c.get("game_id") else None
+        game_id = c["game_id"]
+        game_name = game.get("name") if game else "Unknown"
+        platform = c.get("platform") or (game.get("platform") if game else "")
+        row = _row(game_id, game_name, platform)
+        # Pull all confirmed matches for this comp
+        matches = await db.competition_matches.find({
+            "competition_id": c["id"],
+            "status": "confirmed",
+        }).to_list(2000)
+        for m in matches:
+            stake = float(m.get("stake_amount", 0))
+            if m.get("winner_user_id") == user_id:
+                row["wins"] += 1
+                row["credits_won"] += stake
+            else:
+                row["losses"] += 1
+                row["credits_lost"] += stake
+
+    rows = list(stats.values())
+    for r in rows:
+        r["net_credits"] = r["credits_won"] - r["credits_lost"]
+        r["total_matches"] = r["wins"] + r["losses"]
+    rows.sort(key=lambda r: (r["total_matches"], r["net_credits"]), reverse=True)
+
+    summary = {
+        "total_wins": sum(r["wins"] for r in rows),
+        "total_losses": sum(r["losses"] for r in rows),
+        "total_credits_won": sum(r["credits_won"] for r in rows),
+        "total_credits_lost": sum(r["credits_lost"] for r in rows),
+        "net_credits": sum(r["net_credits"] for r in rows),
+    }
+    return {"user_id": user_id, "summary": summary, "by_game": rows}
+
 
 @api_router.get("/users/{user_id}", response_model=PublicProfileResponse)
 async def get_user_profile(user_id: str, current: dict = Depends(get_current_user)):
@@ -1006,7 +1114,7 @@ async def get_tournaments(
     if max_stake is not None:
         query.setdefault("stake_amount", {})["$lte"] = max_stake
     
-    tournaments = await db.tournaments.find(query).sort("created_at", -1).to_list(1000)
+    tournaments = await db.tournaments.find(query).sort("start_time", 1).to_list(1000)
     result = []
     
     for t in tournaments:
@@ -1323,29 +1431,50 @@ async def get_tournament_details(tournament_id: str):
 # ============ EVIDENCE (Screenshots) ============
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_NAME = "gomofos"
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local").lower()  # "local" or "emergent"
+STORAGE_LOCAL_PATH = os.environ.get("STORAGE_LOCAL_PATH", "/var/www/gomofos/uploads")
 _storage_key = None
+
+
+def _ensure_local_dir(full_path: str):
+    Path(full_path).parent.mkdir(parents=True, exist_ok=True)
+
 
 def init_storage():
     global _storage_key
+    if STORAGE_BACKEND == "local":
+        Path(STORAGE_LOCAL_PATH).mkdir(parents=True, exist_ok=True)
+        return "local"
     if _storage_key:
         return _storage_key
     emergent_key = os.environ.get("EMERGENT_LLM_KEY")
     if not emergent_key:
-        raise RuntimeError("EMERGENT_LLM_KEY not set")
+        raise RuntimeError("EMERGENT_LLM_KEY not set (required when STORAGE_BACKEND=emergent)")
     resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": emergent_key}, timeout=30)
     resp.raise_for_status()
     _storage_key = resp.json()["storage_key"]
     return _storage_key
 
+
 def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
+    global _storage_key
+    init_storage()
+    if STORAGE_BACKEND == "local":
+        full = os.path.join(STORAGE_LOCAL_PATH, path)
+        _ensure_local_dir(full)
+        # Save content alongside a sidecar .meta file containing the content-type
+        with open(full, "wb") as fh:
+            fh.write(data)
+        with open(full + ".meta", "w") as fh:
+            fh.write(content_type or "application/octet-stream")
+        return {"path": path, "size": len(data), "storage": "local"}
+    key = _storage_key
     resp = requests.put(
         f"{STORAGE_URL}/objects/{path}",
         headers={"X-Storage-Key": key, "Content-Type": content_type},
         data=data, timeout=120
     )
     if resp.status_code == 403:
-        global _storage_key
         _storage_key = None
         key = init_storage()
         resp = requests.put(
@@ -1356,11 +1485,24 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
+
 def get_object(path: str):
-    key = init_storage()
+    global _storage_key
+    init_storage()
+    if STORAGE_BACKEND == "local":
+        full = os.path.join(STORAGE_LOCAL_PATH, path)
+        if not os.path.exists(full):
+            raise HTTPException(status_code=404, detail="File not found")
+        with open(full, "rb") as fh:
+            data = fh.read()
+        ct = "application/octet-stream"
+        if os.path.exists(full + ".meta"):
+            with open(full + ".meta", "r") as fh:
+                ct = fh.read().strip() or ct
+        return data, ct
+    key = _storage_key
     resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
     if resp.status_code == 403:
-        global _storage_key
         _storage_key = None
         key = init_storage()
         resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
@@ -1897,57 +2039,14 @@ async def get_messages(tournament_id: str):
 # Wallet/Payment endpoints
 @api_router.post("/wallet/daily-bonus")
 async def claim_daily_bonus(user: dict = Depends(get_current_user)):
-    """Play-money mode: claim a free credit bonus once every 24 hours."""
-    DAILY_BONUS = 250.0
-    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
-    last_claim_str = user_doc.get("last_daily_bonus")
-    now = datetime.now(timezone.utc)
-    
-    if last_claim_str:
-        last_claim = datetime.fromisoformat(last_claim_str)
-        if last_claim.tzinfo is None:
-            last_claim = last_claim.replace(tzinfo=timezone.utc)
-        hours_since = (now - last_claim).total_seconds() / 3600
-        if hours_since < 24:
-            hours_remaining = 24 - hours_since
-            raise HTTPException(
-                status_code=400,
-                detail=f"Daily bonus already claimed. Try again in {int(hours_remaining)}h {int((hours_remaining % 1) * 60)}m."
-            )
-    
-    # Credit the bonus
-    await db.users.update_one(
-        {"_id": ObjectId(user["id"])},
-        {"$inc": {"wallet_balance": DAILY_BONUS}, "$set": {"last_daily_bonus": now.isoformat()}}
-    )
-    await db.wallet_transactions.insert_one({
-        "user_id": user["id"],
-        "amount": DAILY_BONUS,
-        "type": "credit",
-        "reference_type": "daily_bonus",
-        "reference_id": user["id"],
-        "timestamp": now.isoformat()
-    })
-    
-    return {"message": "Daily bonus claimed!", "amount": DAILY_BONUS, "new_balance": user_doc.get("wallet_balance", 0.0) + DAILY_BONUS}
+    """Daily bonus has been retired — players now get their starting credits and must purchase more."""
+    raise HTTPException(status_code=410, detail="Daily bonus has been retired. Top up via the Wallet to add credits.")
+
 
 @api_router.get("/wallet/daily-bonus/status")
 async def daily_bonus_status(user: dict = Depends(get_current_user)):
-    """Check if user can claim daily bonus right now."""
-    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
-    last_claim_str = user_doc.get("last_daily_bonus")
-    
-    if not last_claim_str:
-        return {"can_claim": True, "hours_remaining": 0}
-    
-    last_claim = datetime.fromisoformat(last_claim_str)
-    if last_claim.tzinfo is None:
-        last_claim = last_claim.replace(tzinfo=timezone.utc)
-    hours_since = (datetime.now(timezone.utc) - last_claim).total_seconds() / 3600
-    
-    if hours_since >= 24:
-        return {"can_claim": True, "hours_remaining": 0}
-    return {"can_claim": False, "hours_remaining": round(24 - hours_since, 1)}
+    """Daily bonus retired."""
+    return {"can_claim": False, "hours_remaining": 0, "retired": True}
 
 @api_router.post("/wallet/deposit")
 async def create_deposit(req: DepositRequest, user: dict = Depends(get_current_user)):
@@ -2500,6 +2599,210 @@ async def admin_resolve_dispute(payload: AdminDisputeResolution, user: dict = De
             return {"status": "voided"}
 
     raise HTTPException(status_code=400, detail=f"Unknown dispute kind: {payload.kind}")
+
+
+# ============ PRIZE CATALOG + REDEMPTION ============
+SEED_PRIZES = [
+    # --- Titles ---
+    {"name": "ROOKIE",         "kind": "title", "cost": 100,   "asset": "ROOKIE",         "rarity": "common",    "description": "Just getting started."},
+    {"name": "SHARPSHOOTER",   "kind": "title", "cost": 500,   "asset": "SHARPSHOOTER",   "rarity": "rare",      "description": "Headshots only."},
+    {"name": "GRINDER",        "kind": "title", "cost": 750,   "asset": "GRINDER",        "rarity": "rare",      "description": "Never logs off."},
+    {"name": "MOFO LEGEND",    "kind": "title", "cost": 2000,  "asset": "MOFO LEGEND",    "rarity": "epic",      "description": "Earned every step."},
+    {"name": "GOAT",           "kind": "title", "cost": 5000,  "asset": "GOAT",           "rarity": "legendary", "description": "Greatest of all time."},
+    # --- Badges (kept simple — server stores emoji/icon-name; frontend picks an icon by name) ---
+    {"name": "FIRST WIN",      "kind": "badge", "cost": 200,   "asset": "trophy",         "rarity": "common",    "description": "Stamp the first one."},
+    {"name": "TEN STACK",      "kind": "badge", "cost": 600,   "asset": "medal",          "rarity": "rare",      "description": "Ten clean wins."},
+    {"name": "BIG SPENDER",    "kind": "badge", "cost": 1000,  "asset": "coin-vertical",  "rarity": "rare",      "description": "Top-up royalty."},
+    {"name": "DRAGON",         "kind": "badge", "cost": 1500,  "asset": "fire",           "rarity": "epic",      "description": "On fire."},
+    {"name": "CROWN",          "kind": "badge", "cost": 3000,  "asset": "crown",          "rarity": "legendary", "description": "Born to rule."},
+    # --- Frames (asset = colour hex; frontend draws a ring around the avatar) ---
+    {"name": "BRONZE FRAME",   "kind": "frame", "cost": 400,   "asset": "#CD7F32",        "rarity": "common",    "description": "Steady climb."},
+    {"name": "SILVER FRAME",   "kind": "frame", "cost": 900,   "asset": "#C0C0C0",        "rarity": "rare",      "description": "Getting noticed."},
+    {"name": "GOLD FRAME",     "kind": "frame", "cost": 1800,  "asset": "#FFD700",        "rarity": "epic",      "description": "Champion look."},
+    {"name": "BLOOD FRAME",    "kind": "frame", "cost": 2500,  "asset": "#FF3B30",        "rarity": "epic",      "description": "Don't mess."},
+    {"name": "NEON FRAME",     "kind": "frame", "cost": 4000,  "asset": "#22D3EE",        "rarity": "legendary", "description": "Cyber-warlord."},
+]
+
+
+async def _prize_dict(p: dict) -> dict:
+    return {
+        "id": p["id"],
+        "name": p["name"],
+        "description": p.get("description", ""),
+        "kind": p["kind"],
+        "cost": p["cost"],
+        "asset": p.get("asset", ""),
+        "rarity": p.get("rarity", "common"),
+        "active": p.get("active", True),
+        "created_at": p.get("created_at"),
+    }
+
+
+@api_router.post("/admin/prizes/seed")
+async def seed_prizes(user: dict = Depends(get_current_user)):
+    """Idempotent: inserts the starter prize catalog if not already present."""
+    await _require_admin(user)
+    created = 0
+    for p in SEED_PRIZES:
+        existing = await db.prizes.find_one({"name": p["name"], "kind": p["kind"]})
+        if existing:
+            continue
+        doc = {
+            "id": str(uuid.uuid4()),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **p,
+            "active": True,
+        }
+        await db.prizes.insert_one(doc)
+        created += 1
+    return {"created": created, "total": await db.prizes.count_documents({})}
+
+
+@api_router.get("/prizes")
+async def list_prizes(kind: Optional[str] = None, current: dict = Depends(get_current_user)):
+    """Catalog of redeemable prizes. Filter by kind: badge | title | frame."""
+    query = {"active": True}
+    if kind:
+        query["kind"] = kind
+    cursor = db.prizes.find(query).sort([("kind", 1), ("cost", 1)])
+    items = await cursor.to_list(500)
+    return [await _prize_dict(p) for p in items]
+
+
+@api_router.post("/admin/prizes")
+async def admin_create_prize(payload: PrizeCreate, user: dict = Depends(get_current_user)):
+    await _require_admin(user)
+    if payload.kind not in {"badge", "title", "frame"}:
+        raise HTTPException(status_code=400, detail="kind must be one of: badge, title, frame")
+    if payload.cost <= 0:
+        raise HTTPException(status_code=400, detail="cost must be > 0")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name.strip()[:80],
+        "description": (payload.description or "").strip()[:300],
+        "kind": payload.kind,
+        "cost": float(payload.cost),
+        "asset": (payload.asset or "").strip()[:80],
+        "rarity": (payload.rarity or "common").strip()[:20],
+        "active": True if payload.active is None else bool(payload.active),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.prizes.insert_one(doc)
+    return await _prize_dict(doc)
+
+
+@api_router.patch("/admin/prizes/{prize_id}")
+async def admin_update_prize(prize_id: str, payload: PrizeCreate, user: dict = Depends(get_current_user)):
+    await _require_admin(user)
+    update = {
+        "name": payload.name.strip()[:80],
+        "description": (payload.description or "").strip()[:300],
+        "kind": payload.kind,
+        "cost": float(payload.cost),
+        "asset": (payload.asset or "").strip()[:80],
+        "rarity": (payload.rarity or "common").strip()[:20],
+        "active": bool(payload.active),
+    }
+    res = await db.prizes.update_one({"id": prize_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Prize not found")
+    doc = await db.prizes.find_one({"id": prize_id})
+    return await _prize_dict(doc)
+
+
+@api_router.delete("/admin/prizes/{prize_id}")
+async def admin_delete_prize(prize_id: str, user: dict = Depends(get_current_user)):
+    await _require_admin(user)
+    # Soft-disable rather than truly deleting (users may still own copies)
+    res = await db.prizes.update_one({"id": prize_id}, {"$set": {"active": False}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Prize not found")
+    return {"status": "disabled"}
+
+
+@api_router.post("/prizes/{prize_id}/redeem")
+async def redeem_prize(prize_id: str, user: dict = Depends(get_current_user)):
+    """Deduct cost from wallet and give the user the prize. One-of-each-prize per user."""
+    prize = await db.prizes.find_one({"id": prize_id, "active": True})
+    if not prize:
+        raise HTTPException(status_code=404, detail="Prize not found or no longer available")
+    already_owned = await db.user_prizes.find_one({"user_id": user["id"], "prize_id": prize_id})
+    if already_owned:
+        raise HTTPException(status_code=400, detail="You already own this prize")
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    bal = float(user_doc.get("wallet_balance", 0.0) or 0.0)
+    if bal < float(prize["cost"]):
+        raise HTTPException(status_code=400, detail=f"Insufficient credits (need {prize['cost']} CR, have {bal:.0f} CR)")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$inc": {"wallet_balance": -float(prize["cost"])}})
+    inv_id = str(uuid.uuid4())
+    await db.user_prizes.insert_one({
+        "id": inv_id,
+        "user_id": user["id"],
+        "prize_id": prize_id,
+        "prize_kind": prize["kind"],
+        "redeemed_at": now_iso,
+    })
+    await db.wallet_transactions.insert_one({
+        "user_id": user["id"],
+        "amount": -float(prize["cost"]),
+        "type": "debit",
+        "reference_type": "prize_redeem",
+        "reference_id": prize_id,
+        "timestamp": now_iso,
+    })
+    return {"inventory_id": inv_id, "remaining_balance": bal - float(prize["cost"])}
+
+
+@api_router.get("/users/{user_id}/inventory")
+async def get_user_inventory(user_id: str, current: dict = Depends(get_current_user)):
+    """All prizes a user owns + which ones they have equipped."""
+    items = await db.user_prizes.find({"user_id": user_id}).to_list(500)
+    user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    equipped = (user_doc or {}).get("equipped_prizes", {}) or {}
+    out = []
+    for inv in items:
+        prize = await db.prizes.find_one({"id": inv["prize_id"]})
+        if not prize:
+            continue
+        out.append({
+            "inventory_id": inv["id"],
+            "prize_id": prize["id"],
+            "name": prize["name"],
+            "kind": prize["kind"],
+            "asset": prize.get("asset", ""),
+            "rarity": prize.get("rarity", "common"),
+            "description": prize.get("description", ""),
+            "redeemed_at": inv.get("redeemed_at"),
+            "is_equipped": equipped.get(prize["kind"]) == inv["id"],
+        })
+    return {"user_id": user_id, "equipped": equipped, "items": out}
+
+
+@api_router.post("/users/me/equip")
+async def equip_prize(payload: PrizeEquip, user: dict = Depends(get_current_user)):
+    """Equip a prize the user owns, or pass inventory_id='' to UN-equip the current pick for that kind."""
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    equipped = (user_doc or {}).get("equipped_prizes", {}) or {}
+    if not payload.inventory_id:
+        # Need to know which kind to clear — caller should supply via inventory_id="title:" form? Simpler: clear all empty
+        # Make it explicit: empty means "no change" — caller should call /unequip/{kind} instead.
+        raise HTTPException(status_code=400, detail="inventory_id required (use /users/me/unequip/{kind} to clear)")
+    inv = await db.user_prizes.find_one({"id": payload.inventory_id, "user_id": user["id"]})
+    if not inv:
+        raise HTTPException(status_code=404, detail="You don't own this prize")
+    equipped[inv["prize_kind"]] = payload.inventory_id
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"equipped_prizes": equipped}})
+    return {"equipped": equipped}
+
+
+@api_router.post("/users/me/unequip/{kind}")
+async def unequip_prize(kind: str, user: dict = Depends(get_current_user)):
+    user_doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    equipped = (user_doc or {}).get("equipped_prizes", {}) or {}
+    equipped.pop(kind, None)
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"equipped_prizes": equipped}})
+    return {"equipped": equipped}
 
 
 # Leaderboard

@@ -20,6 +20,7 @@ import Competitions from './pages/Competitions';
 import CompetitionDetails from './pages/CompetitionDetails';
 import PublicHighlight from './pages/PublicHighlight';
 import AdminDisputes from './pages/AdminDisputes';
+import Prizes from './pages/Prizes';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
@@ -41,6 +42,7 @@ function App() {
             <Route path="/competitions" element={<ProtectedRoute><Competitions /></ProtectedRoute>} />
             <Route path="/competition/:id" element={<ProtectedRoute><CompetitionDetails /></ProtectedRoute>} />
             <Route path="/admin/disputes" element={<ProtectedRoute><AdminDisputes /></ProtectedRoute>} />
+            <Route path="/prizes" element={<ProtectedRoute><Prizes /></ProtectedRoute>} />
             <Route path="/tournament/:id" element={<ProtectedRoute><TournamentDetails /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
             <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />

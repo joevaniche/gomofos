@@ -3,7 +3,7 @@ import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { SignOut, Wallet as WalletIcon, ArrowUp, ArrowDown, Coins, Gift } from '@phosphor-icons/react';
+import { SignOut, Wallet as WalletIcon, ArrowUp, ArrowDown, Coins } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -12,12 +12,9 @@ function Wallet() {
   const { user, logout, checkAuth } = useAuth();
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState([]);
-  const [bonusStatus, setBonusStatus] = useState({ can_claim: false, hours_remaining: 0 });
-  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     loadTransactions();
-    loadBonusStatus();
   }, []);
 
   const loadTransactions = async () => {
@@ -26,30 +23,6 @@ function Wallet() {
       setTransactions(data);
     } catch (e) {
       console.error('Failed to load transactions');
-    }
-  };
-
-  const loadBonusStatus = async () => {
-    try {
-      const { data } = await axios.get(`${API}/wallet/daily-bonus/status`, { withCredentials: true });
-      setBonusStatus(data);
-    } catch (e) {
-      console.error('Failed to load bonus status');
-    }
-  };
-
-  const handleClaimBonus = async () => {
-    setClaiming(true);
-    try {
-      const { data } = await axios.post(`${API}/wallet/daily-bonus`, {}, { withCredentials: true });
-      toast.success(`+${data.amount} credits added to your wallet!`);
-      await checkAuth();
-      loadTransactions();
-      loadBonusStatus();
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to claim bonus');
-    } finally {
-      setClaiming(false);
     }
   };
 
@@ -79,6 +52,7 @@ function Wallet() {
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
             <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
+            <Link to="/prizes" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-prizes">PRIZES</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -112,34 +86,9 @@ function Wallet() {
             </div>
 
             <div className="border-t border-[#262626] pt-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Gift size={20} weight="duotone" className="text-[#FF3B30]" />
-                <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">DAILY BONUS</p>
-              </div>
-              {bonusStatus.can_claim ? (
-                <>
-                  <p className="text-sm text-white mb-4">Claim your free <span className="font-bold text-[#22C55E]">250 credits</span> — refreshes every 24 hours.</p>
-                  <button
-                    data-testid="claim-bonus-btn"
-                    onClick={handleClaimBonus}
-                    disabled={claiming}
-                    className="w-full px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    <Gift size={20} weight="bold" />
-                    {claiming ? 'CLAIMING...' : 'CLAIM 250 FREE CREDITS'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-[#A3A3A3] mb-4">Next bonus available in <span className="font-bold text-white">{Math.floor(bonusStatus.hours_remaining)}h {Math.round((bonusStatus.hours_remaining % 1) * 60)}m</span></p>
-                  <button
-                    disabled
-                    className="w-full px-6 py-3 bg-[#262626] text-[#525252] font-bold cursor-not-allowed"
-                  >
-                    ALREADY CLAIMED TODAY
-                  </button>
-                </>
-              )}
+              <p className="text-sm text-[#A3A3A3] mb-2">
+                New players start with <span className="font-bold text-[#22C55E]">1,000 free credits</span>. Need more? Top up below — credits are non-refundable.
+              </p>
             </div>
 
             <div className="mt-6 p-4 bg-[#0A0A0A] border border-[#262626]">

@@ -125,6 +125,8 @@ function ProfileView() {
   const [profile, setProfile] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
   const [games, setGames] = useState([]);
+  const [statsByGame, setStatsByGame] = useState({ summary: {}, by_game: [] });
+  const [inventory, setInventory] = useState({ items: [], equipped: {} });
   const [loading, setLoading] = useState(true);
   const [showChallenge, setShowChallenge] = useState(false);
 
@@ -132,14 +134,18 @@ function ProfileView() {
 
   const loadAll = async () => {
     try {
-      const [p, mine, g] = await Promise.all([
+      const [p, mine, g, stats, inv] = await Promise.all([
         axios.get(`${API}/users/${id}`, { withCredentials: true }),
         axios.get(`${API}/users/me/profile`, { withCredentials: true }),
         axios.get(`${API}/games`, { withCredentials: true }),
+        axios.get(`${API}/users/${id}/stats-by-game`, { withCredentials: true }),
+        axios.get(`${API}/users/${id}/inventory`, { withCredentials: true }),
       ]);
       setProfile(p.data);
       setMyProfile(mine.data);
       setGames(g.data);
+      setStatsByGame(stats.data);
+      setInventory(inv.data);
     } catch (e) {
       toast.error('Profile not found');
       navigate('/players');
@@ -172,6 +178,7 @@ function ProfileView() {
             <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
             <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
             <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
+            <Link to="/prizes" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-prizes">PRIZES</Link>
             <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
             <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
             <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
@@ -292,6 +299,87 @@ function ProfileView() {
                   <p className="text-xs text-[#A3A3A3]">{g.platform}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Per-game performance breakdown */}
+        <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="stats-by-game-section">
+          <h3 className="text-xl font-bold mb-4" style={{fontFamily:'Chivo'}}>PERFORMANCE BY GAME</h3>
+          {statsByGame.by_game.length === 0 ? (
+            <p className="text-sm text-[#A3A3A3]">No completed matches yet — go play some.</p>
+          ) : (
+            <div className="overflow-x-auto" data-testid="stats-by-game-table">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] border-b border-[#262626]">
+                    <th className="px-3 py-3">Game</th>
+                    <th className="px-3 py-3">Platform</th>
+                    <th className="px-3 py-3 text-center">Wins</th>
+                    <th className="px-3 py-3 text-center">Losses</th>
+                    <th className="px-3 py-3 text-center">Win %</th>
+                    <th className="px-3 py-3 text-right">CR Won</th>
+                    <th className="px-3 py-3 text-right">CR Lost</th>
+                    <th className="px-3 py-3 text-right">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statsByGame.by_game.map(r => {
+                    const wr = r.total_matches > 0 ? Math.round((r.wins / r.total_matches) * 100) : 0;
+                    const netColor = r.net_credits > 0 ? 'text-[#22C55E]' : r.net_credits < 0 ? 'text-[#EF4444]' : 'text-[#A3A3A3]';
+                    const netPrefix = r.net_credits > 0 ? '+' : '';
+                    return (
+                      <tr key={r.game_id} data-testid={`stats-row-${r.game_id}`} className="border-b border-[#262626] hover:bg-[#1A1A1A]/60">
+                        <td className="px-3 py-3 text-white font-bold">{r.game_name}</td>
+                        <td className="px-3 py-3 text-[#007AFF] text-xs font-bold">{r.platform}</td>
+                        <td className="px-3 py-3 text-center text-[#22C55E] font-bold">{r.wins}</td>
+                        <td className="px-3 py-3 text-center text-[#EF4444] font-bold">{r.losses}</td>
+                        <td className="px-3 py-3 text-center text-white">{wr}%</td>
+                        <td className="px-3 py-3 text-right text-[#22C55E]">{r.credits_won}</td>
+                        <td className="px-3 py-3 text-right text-[#EF4444]">{r.credits_lost}</td>
+                        <td className={`px-3 py-3 text-right font-black tracking-tighter ${netColor}`} style={{fontFamily:'Chivo'}}>{netPrefix}{r.net_credits} CR</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t-2 border-[#3F3F3F]" data-testid="stats-row-total">
+                    <td className="px-3 py-3 text-white font-black uppercase tracking-[0.1em]" style={{fontFamily:'Chivo'}} colSpan={2}>TOTAL</td>
+                    <td className="px-3 py-3 text-center text-[#22C55E] font-black">{statsByGame.summary.total_wins}</td>
+                    <td className="px-3 py-3 text-center text-[#EF4444] font-black">{statsByGame.summary.total_losses}</td>
+                    <td className="px-3 py-3 text-center text-white font-black">
+                      {(statsByGame.summary.total_wins + statsByGame.summary.total_losses) > 0
+                        ? Math.round(statsByGame.summary.total_wins / (statsByGame.summary.total_wins + statsByGame.summary.total_losses) * 100)
+                        : 0}%
+                    </td>
+                    <td className="px-3 py-3 text-right text-[#22C55E]">{statsByGame.summary.total_credits_won}</td>
+                    <td className="px-3 py-3 text-right text-[#EF4444]">{statsByGame.summary.total_credits_lost}</td>
+                    <td className={`px-3 py-3 text-right font-black tracking-tighter ${statsByGame.summary.net_credits > 0 ? 'text-[#22C55E]' : statsByGame.summary.net_credits < 0 ? 'text-[#EF4444]' : 'text-[#A3A3A3]'}`} style={{fontFamily:'Chivo'}}>
+                      {statsByGame.summary.net_credits > 0 ? '+' : ''}{statsByGame.summary.net_credits} CR
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Owned prizes — visible on every profile */}
+        {inventory.items.length > 0 && (
+          <div className="border border-[#262626] bg-[#141414] p-6 mb-6" data-testid="profile-prizes-section">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold" style={{fontFamily:'Chivo'}}>BLING ({inventory.items.length})</h3>
+              {isOwnProfile && <Link to="/prizes" className="text-xs font-bold text-[#FF3B30] hover:text-white">⊕ REDEEM MORE</Link>}
+            </div>
+            <div className="flex flex-wrap gap-2" data-testid="profile-prizes-grid">
+              {inventory.items.map(i => {
+                const rarityRing = {common:'border-[#A3A3A3]', rare:'border-[#007AFF]', epic:'border-[#A855F7]', legendary:'border-[#F59E0B]'}[i.rarity] || 'border-[#A3A3A3]';
+                return (
+                  <div key={i.inventory_id} title={`${i.name}${i.is_equipped ? ' (equipped)' : ''}`}
+                    className={`border-2 ${rarityRing} ${i.is_equipped ? 'bg-[#0A2615]' : 'bg-[#0A0A0A]'} px-3 py-2 flex items-center gap-2`}>
+                    <span className="text-white text-xs font-bold">{i.name}</span>
+                    {i.is_equipped && <span className="text-[10px] font-bold text-[#22C55E]">✓</span>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
