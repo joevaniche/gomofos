@@ -106,6 +106,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     username: str
+    ref: Optional[str] = None    # referral id from /register?ref=...
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -294,7 +295,33 @@ async def register(user_data: UserRegister, response: Response):
         "reference_id": user_id,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
-    
+
+    # Process referral if provided
+    if user_data.ref:
+        ref = await db.referrals.find_one({"id": user_data.ref, "status": "pending"})
+        if ref and ref["referrer_id"] != user_id:
+            # Credit referrer
+            await db.users.update_one(
+                {"_id": ObjectId(ref["referrer_id"])},
+                {"$inc": {"wallet_balance": REFERRAL_BONUS}}
+            )
+            await db.wallet_transactions.insert_one({
+                "user_id": ref["referrer_id"],
+                "amount": REFERRAL_BONUS,
+                "type": "credit",
+                "reference_type": "referral_bonus",
+                "reference_id": user_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            await db.referrals.update_one(
+                {"id": user_data.ref},
+                {"$set": {
+                    "status": "credited",
+                    "invitee_user_id": user_id,
+                    "signed_up_at": datetime.now(timezone.utc).isoformat(),
+                }}
+            )
+
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
@@ -3088,6 +3115,130 @@ async def unequip_prize(kind: str, user: dict = Depends(get_current_user)):
     equipped.pop(kind, None)
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"equipped_prizes": equipped}})
     return {"equipped": equipped}
+
+
+# ============ ADMIN DELETE (profiles / tournaments / competitions) ============
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, user: dict = Depends(get_current_user)):
+    """Hard delete a user account + every record they're attached to. Irreversible."""
+    await _require_admin(user)
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="You can't delete your own account from here")
+    try:
+        target = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.tournament_participants.delete_many({"user_id": user_id})
+    await db.competition_matches.delete_many({"$or": [{"logged_by_id": user_id}, {"winner_user_id": user_id}]})
+    await db.competitions.delete_many({"$or": [{"player_a_id": user_id}, {"player_b_id": user_id}]})
+    await db.user_prizes.delete_many({"user_id": user_id})
+    await db.wallet_transactions.delete_many({"user_id": user_id})
+    await db.highlight_reels.delete_many({"user_id": user_id})
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    return {"deleted": user_id}
+
+
+@api_router.delete("/admin/tournaments/{tournament_id}")
+async def admin_delete_tournament(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Refund every participant and hard-delete a tournament."""
+    await _require_admin(user)
+    try:
+        t = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    if not t:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    parts = await db.tournament_participants.find({"tournament_id": tournament_id}).to_list(50)
+    stake = float(t.get("stake_amount", 0))
+    now_iso = datetime.now(timezone.utc).isoformat()
+    refunded = 0
+    if t.get("status") not in ("completed", "voided"):
+        for p in parts:
+            await db.users.update_one({"_id": ObjectId(p["user_id"])}, {"$inc": {"wallet_balance": stake}})
+            await db.wallet_transactions.insert_one({
+                "user_id": p["user_id"], "amount": stake, "type": "credit",
+                "reference_type": "tournament_admin_deleted", "reference_id": tournament_id,
+                "timestamp": now_iso,
+            })
+            refunded += 1
+    await db.tournament_participants.delete_many({"tournament_id": tournament_id})
+    await db.tournaments.delete_one({"_id": ObjectId(tournament_id)})
+    return {"deleted": tournament_id, "refunded_players": refunded}
+
+
+@api_router.delete("/admin/competitions/{comp_id}")
+async def admin_delete_competition(comp_id: str, user: dict = Depends(get_current_user)):
+    await _require_admin(user)
+    c = await db.competitions.find_one({"id": comp_id})
+    if not c:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    await db.competition_matches.delete_many({"competition_id": comp_id})
+    await db.competition_latency.delete_many({"competition_id": comp_id})
+    await db.competitions.delete_one({"id": comp_id})
+    return {"deleted": comp_id}
+
+
+# ============ REFERRAL PROGRAM ============
+class ReferralInvite(BaseModel):
+    email: str
+
+REFERRAL_BONUS = 500.0
+
+
+@api_router.post("/referrals/invite")
+async def send_referral_invite(payload: ReferralInvite, user: dict = Depends(get_current_user)):
+    email = (payload.email or "").strip().lower()
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email")
+    if email == (user.get("email") or "").lower():
+        raise HTTPException(status_code=400, detail="That's your own email")
+    existing_user = await db.users.find_one({"email": email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="That email is already on Gomofos")
+    rec = await db.referrals.find_one({"referrer_id": user["id"], "invitee_email": email})
+    if not rec:
+        rec = {
+            "id": str(uuid.uuid4()),
+            "referrer_id": user["id"],
+            "referrer_username": user.get("username"),
+            "invitee_email": email,
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.referrals.insert_one(rec)
+    app_url = os.environ.get("FRONTEND_URL", "https://gomofos.com").rstrip("/")
+    signup_url = f"{app_url}/register?ref={rec['id']}"
+    api_key = os.environ.get("SENDGRID_API_KEY", "")
+    if api_key:
+        try:
+            from email_service import send_email_async, _wrap_html
+            html = _wrap_html(
+                f"{user.get('username')} wants you on Gomofos",
+                f"<strong>{user.get('username')}</strong> just challenged you to join GOMOFOS — the esports staking platform where you bet on yourself.",
+                signup_url, "ACCEPT THE CHALLENGE",
+                f"<p style='font-size:13px;color:#A3A3A3;margin-top:16px'>You'll get 1,000 free credits when you sign up. If you use the link above, <strong>{user.get('username')}</strong> also earns {int(REFERRAL_BONUS)} CR.</p>"
+            )
+            plain = f"{user.get('username')} invited you to Gomofos. Sign up: {signup_url}"
+            asyncio.create_task(send_email_async(email, f"{user.get('username')} challenged you on Gomofos", html, plain))
+        except Exception as e:
+            logger.warning(f"Referral email failed: {e}")
+    return {"invite_id": rec["id"], "invite_url": signup_url, "status": "sent" if api_key else "queued_no_sendgrid"}
+
+
+@api_router.get("/referrals/mine")
+async def list_my_referrals(user: dict = Depends(get_current_user)):
+    items = await db.referrals.find({"referrer_id": user["id"]}).sort("created_at", -1).to_list(500)
+    return {
+        "bonus_per_signup": REFERRAL_BONUS,
+        "total_earned": sum(REFERRAL_BONUS for r in items if r.get("status") == "credited"),
+        "referrals": [
+            {"id": r["id"], "invitee_email": r["invitee_email"], "status": r.get("status"),
+             "created_at": r.get("created_at"), "signed_up_at": r.get("signed_up_at")}
+            for r in items
+        ],
+    }
 
 
 # ============ WHATSAPP / SMS REMINDERS (Twilio) ============

@@ -92,9 +92,9 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const register = async (email, password, username) => {
+  const register = async (email, password, username, ref = null) => {
     try {
-      const { data } = await axios.post(`${API}/auth/register`, { email, password, username }, { withCredentials: true });
+      const { data } = await axios.post(`${API}/auth/register`, { email, password, username, ref }, { withCredentials: true });
       setUser(data);
       return { success: true, data };
     } catch (e) {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import Logo from '../components/Logo';
@@ -11,15 +11,17 @@ function Register() {
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const refCode = params.get('ref') || null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const result = await register(email, password, username);
+    const result = await register(email, password, username, refCode);
     setLoading(false);
     
     if (result.success) {
-      toast.success('Registration successful');
+      toast.success(refCode ? 'Welcome — referral bonus applied for your inviter!' : 'Registration successful');
       navigate('/dashboard');
     } else {
       toast.error(result.error);

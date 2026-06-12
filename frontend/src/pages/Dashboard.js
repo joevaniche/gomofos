@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
+import TopNav from '../components/TopNav';
+import ReferAMofo from '../components/ReferAMofo';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Trophy, GameController, Users, SignOut, Plus, Coins, Sword, User } from '@phosphor-icons/react';
@@ -53,32 +55,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-6">
-            <Link to="/dashboard" className="text-sm font-bold text-[#FF3B30]" data-testid="nav-dashboard">DASHBOARD</Link>
-            <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
-            <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
-            <Link to="/prizes" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-prizes">PRIZES</Link>
-            <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
-            <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
-            <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
-            {user?.role === 'admin' && (
-              <Link to="/admin/disputes" className="text-sm font-bold text-[#F59E0B] hover:text-white" data-testid="nav-admin-disputes">DISPUTES</Link>
-            )}
-            <Link to="/profile" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-profile">PROFILE</Link>
-            <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Coins size={18} weight="bold" />
-              {user?.wallet_balance?.toFixed(0) || '0'} CR
-            </Link>
-            <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
-              <SignOut size={18} weight="bold" />
-              LOGOUT
-            </button>
-          </div>
-        </div>
-      </nav>
+      <TopNav />
 
       <div className="max-w-7xl mx-auto p-6">
         {user?.status === 'on_hold' && (
@@ -88,6 +65,8 @@ function Dashboard() {
             <p className="text-xs text-[#A3A3A3] mt-2">Contact <a href="mailto:david@gomofos.com" className="text-[#FF3B30] underline">david@gomofos.com</a> to request a review.</p>
           </div>
         )}
+
+        <ReferAMofo />
         {/* User Info */}
         <div className="mb-8">
           <h2 className="text-3xl font-black tracking-tighter text-white mb-2" style={{fontFamily: 'Chivo'}}>

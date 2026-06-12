@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Logo from '../components/Logo';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import TopNav from '../components/TopNav';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Coins, User, MapPin, Trophy, X, Sword, Circle, CircleDashed } from '@phosphor-icons/react';
@@ -171,26 +172,7 @@ function ProfileView() {
 
   return (
     <div className="min-h-screen">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-6">
-            <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
-            <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
-            <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
-            <Link to="/prizes" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-prizes">PRIZES</Link>
-            <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
-            <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
-            <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
-            <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Coins size={18} weight="bold" />{user?.wallet_balance?.toFixed(0) || '0'} CR
-            </Link>
-            <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
-              <SignOut size={18} weight="bold" />LOGOUT
-            </button>
-          </div>
-        </div>
-      </nav>
+      <TopNav />
 
       <div className="max-w-5xl mx-auto p-6">
         {/* Header */}
@@ -222,10 +204,26 @@ function ProfileView() {
                 EDIT PROFILE
               </button>
             ) : (
-              <button data-testid="challenge-btn" onClick={() => setShowChallenge(true)}
-                className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors flex items-center gap-2">
-                <Sword size={18} weight="bold" />CHALLENGE
-              </button>
+              <div className="flex gap-2">
+                <button data-testid="challenge-btn" onClick={() => setShowChallenge(true)}
+                  className="px-6 py-3 bg-[#FF3B30] text-white font-bold hover:bg-[#D62F26] transition-colors flex items-center gap-2">
+                  <Sword size={18} weight="bold" />CHALLENGE
+                </button>
+                {user?.role === 'admin' && (
+                  <button data-testid="admin-delete-user-btn"
+                    onClick={async () => {
+                      if (!window.confirm(`HARD DELETE ${profile.username}'s account and all of their data? This cannot be undone.`)) return;
+                      try {
+                        await axios.delete(`${API}/admin/users/${profile.id}`, { withCredentials: true });
+                        toast.success('Account deleted');
+                        navigate('/players');
+                      } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+                    }}
+                    className="px-4 py-3 bg-transparent border border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white font-bold transition-colors">
+                    DELETE USER
+                  </button>
+                )}
+              </div>
             )}
           </div>
           {profile.bio && (

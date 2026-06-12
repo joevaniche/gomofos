@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Logo from '../components/Logo';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import TopNav from '../components/TopNav';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Coins, Users, Trophy, PaperPlaneRight, Upload, Image as ImageIcon, WifiHigh, WifiLow, WifiMedium, ShieldWarning, CheckCircle, XLogo, VideoCamera } from '@phosphor-icons/react';
@@ -249,30 +250,26 @@ function TournamentDetails() {
   return (
     <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-6">
-            <Link to="/dashboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-dashboard">DASHBOARD</Link>
-            <Link to="/tournaments" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-tournaments">TOURNAMENTS</Link>
-            <Link to="/competitions" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-competitions">COMPETITIONS</Link>
-            <Link to="/prizes" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-prizes">PRIZES</Link>
-            <Link to="/players" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-players">PLAYERS</Link>
-            <Link to="/games" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-games">GAMES</Link>
-            <Link to="/leaderboard" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-leaderboard">LEADERBOARD</Link>
-            <Link to="/profile" className="text-sm font-bold text-[#A3A3A3] hover:text-white" data-testid="nav-profile">PROFILE</Link>
-            <Link to="/wallet" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-wallet">
-              <Coins size={18} weight="bold" />
-              {user?.wallet_balance?.toFixed(0) || '0'} CR
-            </Link>
-            <button onClick={handleLogout} className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-2" data-testid="nav-logout">
-              <SignOut size={18} weight="bold" />LOGOUT
-            </button>
-          </div>
-        </div>
-      </nav>
+      <TopNav />
 
       <div className="max-w-7xl mx-auto p-6">
+        {user?.role === 'admin' && (
+          <div className="mb-4 flex justify-end">
+            <button data-testid="admin-delete-tournament-btn"
+              onClick={async () => {
+                if (!window.confirm('Hard-delete this tournament and refund all stakes (if not already settled)? Cannot be undone.')) return;
+                try {
+                  await axios.delete(`${API}/admin/tournaments/${id}`, { withCredentials: true });
+                  toast.success('Tournament deleted');
+                  navigate('/tournaments');
+                } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+              }}
+              className="px-3 py-1.5 text-xs font-bold border border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white transition-colors">
+              ADMIN: DELETE TOURNAMENT
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* LEFT COLUMN */}
           <div className="lg:col-span-2 space-y-6">

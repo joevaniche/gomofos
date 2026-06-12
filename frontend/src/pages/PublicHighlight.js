@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import TopNav from '../components/TopNav';
 import axios from 'axios';
 import Logo from '../components/Logo';
 import { ArrowLeft, Eye } from '@phosphor-icons/react';
@@ -19,14 +20,7 @@ function PublicHighlight() {
 
   return (
     <div className="min-h-screen">
-      <nav className="border-b border-[#262626] bg-[#0A0A0A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/"><Logo /></Link>
-          <Link to="/" className="text-sm font-bold text-[#A3A3A3] hover:text-white flex items-center gap-1" data-testid="back-home">
-            <ArrowLeft size={16} weight="bold" /> HOME
-          </Link>
-        </div>
-      </nav>
+      <TopNav />
       <div className="max-w-4xl mx-auto p-6">
         {error && <p className="text-[#A3A3A3]">{error}</p>}
         {!error && !reel && <p className="text-[#A3A3A3]">Loading...</p>}
