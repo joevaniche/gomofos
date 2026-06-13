@@ -226,6 +226,52 @@
 - **SendGrid Click Tracking** — user still needs to disable Click Tracking in SendGrid dashboard to fix the `url1461.gomofos.com` SSL cert error on referral email links. No code change required.
 
 ### Backlog (still open)
-- **P1**: Refactor `server.py` (3,575 lines) into modular APIRouters (auth, tournaments, competitions, admin, prizes, referrals, highlights). Becoming a context-window liability.
 - **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
 - **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
+
+
+## Iteration 11: Backend Refactor — Monolith Split into Modular Routers (Feb 2026)
+### Done
+- **`server.py`: 3,575 → 91 lines.** The previous monolith was split into a thin entry point that wires together purpose-built modules. All endpoint paths, request/response shapes, and behaviour are byte-identical to before — pure structural refactor.
+- **New `/app/backend/core.py`** (132 LOC) — single source of truth for: `app`, `api_router`, Mongo `db`/`client`, `logger`, JWT helpers (`hash_password`, `verify_password`, `create_access_token`, `create_refresh_token`, `create_decline_token`), `get_current_user`, and ALL module-level constants (`WELCOME_BONUS`, `REFERRAL_BONUS`, `LATENCY_WARN_MS=100`, `LATENCY_HIGH_MS=200`, `DISPUTE_HOLD_THRESHOLD=0.66`, `DISPUTE_HOLD_MIN_MATCHES=3`, storage paths, `HIGHLIGHT_*`, `TWOFA_*`).
+- **New `/app/backend/models.py`** (196 LOC) — every Pydantic request/response model (UserRegister/Login/Response, GameCreate/Response, TournamentCreate/Response, ChatMessage*, DepositRequest, ForgotPassword*, ResetPassword*, ProfileUpdate, PublicProfileResponse, ChallengeCreate, CompetitionCreate, CompetitionMatchLog, PrizeFeat/Create/Equip, AdminDisputeResolution, ReferralInvite, TwoFAChallenge).
+- **New `/app/backend/services.py`** (495 LOC) — cross-domain helpers that more than one router needs: `init_storage`/`put_object`/`get_object`/`_ensure_local_dir` (storage), `build_public_profile`, `require_admin`, `cleanup_expired_tournaments`, `award_winner_and_close`, `compute_latency_advantage*`, `recompute_user_dispute_status`, `competition_to_dict`, `stats_for_user`, `check_feat_unlocked`, `prize_dict`, `SEED_PRIZES`, `twilio_client`, `send_whatsapp`, `start_admin_2fa`, `dispatch_tournament_reminder`, `reminder_scheduler_loop`. All depend ONLY on `core` — never on routers, so zero circular imports.
+- **New `/app/backend/routers/` package** with 13 modules — auth, users, challenges, games, tournaments, competitions, chat, wallet, admin, prizes, highlights, referrals, misc. Each module imports `api_router` from `core` and registers its endpoints with `@api_router.get/post/...` decorators at import time. **83 routes total** across all routers.
+- **`server.py` final shape**: imports core+services+all 13 routers (so routes auto-register via side effect), then `app.include_router(api_router)`, mounts CORS, and keeps the existing `@app.on_event("startup"/"shutdown")` hooks (index creation, admin seed, storage init, reminder loop kickoff).
+
+### Bug found & fixed during regression
+- **`routers/auth.py` brute-force lockout was returning HTTP 500 instead of 429** — Mongo persists timezone-naive datetime, but `locked_until` was written tz-aware and read back tz-naive, causing `TypeError: can't compare offset-naive and offset-aware datetimes`. Pre-existing bug exposed by iter11's broader test pass. **Fix**: normalize `lockout_until` to UTC-aware before comparison (`routers/auth.py` L108-112).
+
+### Verified
+- **Backend pytest 38/38 PASS** (1 pre-existing skip) across 3 suites: iter9 decline+refund (12/12), iter10 health+game-leaderboard (5/5), new iter11 broad regression (21/21 covering boot/auth/profile/games/tournaments/challenges/wallet/prizes/admin/referrals/competitions/highlights).
+- **Frontend Playwright smoke PASS** — login as davidjovanic@yahoo.com.au; navigated /dashboard, /games, /tournaments, /competitions, /prizes, /leaderboard, /players, /profile, /games/{id}/leaderboard. Every page rendered with TopNav, 0 console errors. Game-card click → GameLeaderboard worked.
+- **Manual smoke** — POST /api/auth/login → cookies set; GET /api/auth/me → 200; GET /api/games → 100 games; GET /api/health/time → 200; GET /api/games/{id}/leaderboard → 200; GET /api/leaderboard → 200; GET /api/countries → 200; GET /api/competitions → 200; GET /api/prizes → 200; GET /api/referrals/mine → 200.
+
+### Files added/changed
+- `/app/backend/core.py` (NEW)
+- `/app/backend/models.py` (NEW)
+- `/app/backend/services.py` (NEW)
+- `/app/backend/routers/__init__.py` (NEW)
+- `/app/backend/routers/auth.py` (NEW)
+- `/app/backend/routers/users.py` (NEW)
+- `/app/backend/routers/challenges.py` (NEW)
+- `/app/backend/routers/games.py` (NEW)
+- `/app/backend/routers/tournaments.py` (NEW)
+- `/app/backend/routers/competitions.py` (NEW)
+- `/app/backend/routers/chat.py` (NEW)
+- `/app/backend/routers/wallet.py` (NEW)
+- `/app/backend/routers/admin.py` (NEW)
+- `/app/backend/routers/prizes.py` (NEW)
+- `/app/backend/routers/highlights.py` (NEW)
+- `/app/backend/routers/referrals.py` (NEW)
+- `/app/backend/routers/misc.py` (NEW)
+- `/app/backend/server.py` (REWRITTEN — 3,575 → 91 lines, entry-point only)
+- `/app/backend/tests/test_iter11_refactor_regression.py` (NEW, 21 cases)
+- `/app/backend/tests/test_iter8_latency_email.py` (updated test_latency_constants_exist to read `core.py` instead of `server.py`)
+
+### Backlog (still open)
+- **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
+- **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
+- **P2**: Audit other code paths for the same tz-naive Mongo datetime class of bug (password_reset_tokens, tournament start_time, highlights created_at).
+- **P3**: Strengthen brute-force lockout by reading X-Forwarded-For so the per-user counter is global across pods (K8s ingress LB currently splits attempts across 2 pods).
+
