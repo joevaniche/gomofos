@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 10 verified: (1) /api/health/time, (2) /api/games/{id}/leaderboard, (3) Dashboard MY ACTIVE TOURNAMENTS table refactor, (4) GameLeaderboard page reached via game-card click. Backend pytest 5/5 PASS (1 sort-order test SKIPPED because no game has >=2 leaderboard rows in this DB). Frontend Playwright PASS for: login as davidjovanic@yahoo.com.au, dashboard shows empty no-tournaments testid (user has 0 active tournaments) with TopNav visible, /games shows 101 cards with TopNav, clicking first card navigates to /games/{id}/leaderboard, GameLeaderboard renders back-to-games link, heading '<game> — LEADERBOARD', empty state no-game-results testid (no completed matches), TopNav present, and back link returns to /games.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iter10_health_and_game_leaderboard.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L3437 wraps ObjectId(game_id) in try/except → returns 404 for both malformed and non-existent ids. Verified both cases.",
+    "server.py L3450 only counts tournaments with status=='completed' — open tournaments and currently-in-progress matches are correctly excluded. Good.",
+    "server.py L3460 net_credits for tournament winner is `stake * (n_players - 1)` (gross of own stake). This matches platform-payout model where winner takes everyone else's stake; loser net is -stake. Consistent.",
+    "server.py L3468 h2h winnings credit `stake_amount` to winner — this is the *opponent* stake (correct), but ensure m['stake_amount'] is per-player and not pot; this matches code elsewhere.",
+    "server.py L3494 sort key is (wins, net_credits) descending — correct tie-breaker behaviour.",
+    "Dashboard.js L203 my-tournaments-table renders the same 6 columns specified in the requirements (Opponent / Game / Platform / Date & Time / Stake / Status). The opponentLabel ternary correctly handles 1v1 vs >2-player tournaments. Status mapping covers open/in_progress/pending_confirmation/disputed; falls back to upper-cased raw status for any unknown state (defensive). Solid.",
+    "GameLeaderboard.js L19 uses withCredentials — matches httpOnly cookie auth pattern. On error it toasts + navigates back to /games which prevents stuck states.",
+    "GameLeaderboard.js L65 `isMe` check highlights current user row with bg-[#FF3B30]/10 + (YOU) badge — verified the className conditional but couldn't visually confirm without a matching row in DB. Code is correct.",
+    "BrowseGames.js L221 navigates on game-card click — note: this also fires from the entire card area including the cover image; there is no separate 'view leaderboard' affordance, which could confuse users who expect a card click to open the game profile. Cosmetic UX concern.",
+    "GameLeaderboard.js L9 builds API base from process.env.REACT_APP_BACKEND_URL — correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter10_health_and_game_leaderboard.py (NEW, 6 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 ran, 1 skipped for lack of seed data with >=2 rows)",
+    "frontend": "100% (login → dashboard empty-state → /games with 101 cards → click card → GameLeaderboard → back). TopNav verified on Dashboard, BrowseGames, and GameLeaderboard."
+  },
+  "test_credentials": "Regular user davidjovanic@yahoo.com.au / Andmay123 (provided). Wallet 1000 CR, no active tournaments, no completed matches.",
+  "seed_data_creation": "None. Used existing davidjovanic user and existing game catalog (101 games).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend cookie-auth via /api/auth/login (no token in body); use requests.Session(). Iter10 features all pass. The leaderboard 'row population + current-user highlight' visual case was not exercised because davidjovanic has zero completed matches and no game in the DB has >=2 rows; to test it, complete a tournament or confirm a competition_match first (see /api/competitions and /api/tournaments flows). 404 on /api/games/{id}/leaderboard fires for both malformed ids and valid-but-missing 24-hex ids. Health endpoint is unauthenticated and returns ISO-8601 strings + tz_offset_hours (float).",
+  "rca of the issue": "No bugs found."
+}
