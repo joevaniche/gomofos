@@ -200,3 +200,32 @@
 - `/app/frontend/src/pages/Dashboard.js` (Accept/Decline buttons on each incoming-challenge card, window.confirm + decline POST + state + wallet refresh)
 - `/app/backend/tests/test_iter9_decline_refund.py` (NEW, 12 cases)
 
+
+## Iteration 10: Server Timezone Health, Per-Game Leaderboard, Dashboard Tournaments Table (Feb 2026)
+### Done
+- **Backend `GET /api/health/time`** — public endpoint that returns `server_time_utc`, `server_time_local`, `server_timezone`, `tz_offset_hours`. Useful for debugging tournament time display mismatches on the live server.
+- **Backend `GET /api/games/{game_id}/leaderboard`** — per-game leaderboard. Counts every completed tournament + confirmed h2h match on this specific game; ranks by `(wins desc, net_credits desc)`. Returns `game_id`, `game_name`, `platform`, `category`, `rows[]` with `user_id`, `username`, `wins`, `losses`, `total_matches`, `net_credits`, `equipped_thumbs` (so leaderboard shows bling). 404 on missing or malformed id.
+- **`Dashboard.js` — "MY ACTIVE TOURNAMENTS" table** — refactored from card grid to a single table matching the Tournaments tab. Columns: Opponent, Game, Platform, Date & Time, Stake, Status. Opponent label handles 1v1 vs >2-player cases; status mapping covers open/in_progress/pending_confirmation/disputed with colour codes; row click navigates to tournament detail.
+- **`GameLeaderboard.js`** — new page at `/games/:id/leaderboard`, rendered with `<TopNav />`, "All games" back link, category/platform tag, Trophy icon, and either an empty state or the ranked table with current-user highlight (`bg-[#FF3B30]/10` + "(YOU)" badge).
+- **`BrowseGames.js`** — game cards now navigate to `/games/{id}/leaderboard` on click.
+
+### Verified
+- Backend pytest 5/5 PASS (`test_iter10_health_and_game_leaderboard.py`) — health endpoint shape, leaderboard 200 happy path, 404 for malformed + non-existent id, row schema. 1 sort-order assertion SKIPPED because DB has no game with ≥2 leaderboard rows yet.
+- Frontend Playwright PASS — login as davidjovanic@yahoo.com.au, dashboard renders `no-tournaments` empty state with `TopNav`, /games shows 101 cards with `TopNav`, clicking the first card navigates to `/games/{id}/leaderboard`, GameLeaderboard renders back link + heading + empty state + TopNav, back link returns to /games.
+- No regressions on iterations 6–9.
+
+### Files touched
+- `/app/backend/server.py` (added /api/health/time and /api/games/{game_id}/leaderboard near line 3420)
+- `/app/frontend/src/pages/Dashboard.js` (table refactor for MY ACTIVE TOURNAMENTS)
+- `/app/frontend/src/pages/GameLeaderboard.js` (NEW)
+- `/app/frontend/src/pages/BrowseGames.js` (card click → leaderboard route)
+- `/app/frontend/src/App.js` (route `/games/:id/leaderboard`)
+- `/app/backend/tests/test_iter10_health_and_game_leaderboard.py` (NEW)
+
+### Pending User Actions
+- **SendGrid Click Tracking** — user still needs to disable Click Tracking in SendGrid dashboard to fix the `url1461.gomofos.com` SSL cert error on referral email links. No code change required.
+
+### Backlog (still open)
+- **P1**: Refactor `server.py` (3,575 lines) into modular APIRouters (auth, tournaments, competitions, admin, prizes, referrals, highlights). Becoming a context-window liability.
+- **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
+- **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
