@@ -3417,6 +3417,85 @@ async def _dispatch_tournament_reminder(t: dict, window: str):
 
 
 # Leaderboard
+@api_router.get("/health/time")
+async def health_time():
+    """Reports server timezone — useful to debug tournament time displays."""
+    import time as _t
+    return {
+        "server_time_utc": datetime.now(timezone.utc).isoformat(),
+        "server_time_local": datetime.now().isoformat(),
+        "server_timezone": _t.tzname[0] if _t.tzname else "Unknown",
+        "tz_offset_hours": -_t.timezone / 3600,
+    }
+
+
+@api_router.get("/games/{game_id}/leaderboard")
+async def get_game_leaderboard(game_id: str, current: dict = Depends(get_current_user)):
+    """Per-game leaderboard. Counts every completed tournament + confirmed h2h match
+    on this specific game and ranks players by wins (tie-break: net credits)."""
+    try:
+        game = await db.games.find_one({"_id": ObjectId(game_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    stats: Dict[str, Dict[str, Any]] = {}
+    def _row(uid: str):
+        if uid not in stats:
+            stats[uid] = {"user_id": uid, "wins": 0, "losses": 0, "net_credits": 0.0}
+        return stats[uid]
+
+    # Tournaments on this game
+    tournaments = await db.tournaments.find({"game_id": game_id, "status": "completed"}).to_list(2000)
+    for t in tournaments:
+        parts = await db.tournament_participants.find({"tournament_id": str(t["_id"])}).to_list(50)
+        stake = float(t.get("stake_amount", 0))
+        n_players = len(parts)
+        winner = t.get("winner_id")
+        for p in parts:
+            r = _row(p["user_id"])
+            if p["user_id"] == winner:
+                r["wins"] += 1
+                r["net_credits"] += stake * (n_players - 1)
+            else:
+                r["losses"] += 1
+                r["net_credits"] -= stake
+
+    # H2H competitions on this game
+    comps = await db.competitions.find({"game_id": game_id}).to_list(2000)
+    for c in comps:
+        matches = await db.competition_matches.find({"competition_id": c["id"], "status": "confirmed"}).to_list(5000)
+        for m in matches:
+            stake = float(m.get("stake_amount", 0))
+            winner = m["winner_user_id"]
+            loser = c["player_b_id"] if winner == c["player_a_id"] else c["player_a_id"]
+            rw = _row(winner); rw["wins"] += 1; rw["net_credits"] += stake
+            rl = _row(loser); rl["losses"] += 1; rl["net_credits"] -= stake
+
+    # Attach username + equipped thumbnails (so leaderboard shows bling)
+    rows = []
+    for uid, r in stats.items():
+        u = await db.users.find_one({"_id": ObjectId(uid)})
+        if not u:
+            continue
+        equipped_thumbs = []
+        equipped = (u.get("equipped_prizes") or {}) if isinstance(u.get("equipped_prizes"), dict) else {}
+        for inv_id in set(equipped.values()):
+            inv = await db.user_prizes.find_one({"id": inv_id, "user_id": uid})
+            if not inv: continue
+            prize = await db.prizes.find_one({"id": inv["prize_id"]})
+            if not prize: continue
+            thumb = prize.get("thumb_url") or prize.get("image_url")
+            if thumb:
+                equipped_thumbs.append({"name": prize["name"], "thumb_url": thumb})
+        rows.append({**r, "username": u.get("username"), "equipped_thumbs": equipped_thumbs,
+                     "total_matches": r["wins"] + r["losses"]})
+    rows.sort(key=lambda r: (r["wins"], r["net_credits"]), reverse=True)
+    return {"game_id": game_id, "game_name": game.get("name"), "platform": game.get("platform"),
+            "category": game.get("category"), "rows": rows}
+
+
 @api_router.get("/leaderboard")
 async def get_leaderboard():
     users = await db.users.find({}, {"_id": 1, "username": 1, "total_wins": 1, "total_losses": 1, "wallet_balance": 1, "equipped_prizes": 1}).sort("total_wins", -1).limit(50).to_list(50)

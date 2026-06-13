@@ -200,42 +200,51 @@ function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tournaments.map((tournament) => {
-                const statusColor = {
-                  'open': 'text-[#22C55E]',
-                  'in_progress': 'text-[#007AFF]',
-                  'pending_confirmation': 'text-[#F59E0B]',
-                  'disputed': 'text-[#EF4444]',
-                }[tournament.status] || 'text-[#A3A3A3]';
-                const statusLabel = {
-                  'open': 'WAITING',
-                  'in_progress': 'IN PLAY',
-                  'pending_confirmation': 'AWAITING RESULT',
-                  'disputed': 'DISPUTED',
-                }[tournament.status] || tournament.status.toUpperCase();
-                return (
-                  <div
-                    key={tournament.id}
-                    className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors cursor-pointer"
-                    onClick={() => navigate(`/tournament/${tournament.id}`)}
-                    data-testid={`tournament-card-${tournament.id}`}
-                  >
-                    <div className="p-6">
-                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3] mb-1">{tournament.game_name}</p>
-                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#007AFF] mb-3">{tournament.platform}</p>
-                      <h4 className="text-xl font-bold mb-4" style={{fontFamily: 'Chivo'}}>STAKE: {tournament.stake_amount} CR</h4>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-[#A3A3A3]">{tournament.current_players}/{tournament.max_players} PLAYERS</span>
-                        <span className={`${statusColor} font-bold`}>{statusLabel}</span>
-                      </div>
-                      <div className="mt-4 pt-4 border-t border-[#262626]">
-                        <p className="text-xs text-[#A3A3A3]">Host: {tournament.creator_username}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm overflow-x-auto" data-testid="my-tournaments-table">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#262626] text-left text-xs font-bold uppercase tracking-[0.1em] text-[#A3A3A3]">
+                    <th className="px-4 py-3">Opponent</th>
+                    <th className="px-4 py-3">Game</th>
+                    <th className="px-4 py-3">Platform</th>
+                    <th className="px-4 py-3">Date & Time</th>
+                    <th className="px-4 py-3 text-right">Stake</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tournaments.map((t) => {
+                    const isCreator = t.creator_id === user?.id;
+                    const opponentLabel = isCreator
+                      ? `${t.current_players - 1}/${t.max_players - 1} joined`
+                      : (t.max_players > 2 ? `${t.creator_username} +${t.max_players - 2}` : t.creator_username);
+                    const statusColor = {
+                      'open': 'text-[#22C55E]',
+                      'in_progress': 'text-[#007AFF]',
+                      'pending_confirmation': 'text-[#F59E0B]',
+                      'disputed': 'text-[#EF4444]',
+                    }[t.status] || 'text-[#A3A3A3]';
+                    const statusLabel = {
+                      'open': 'WAITING',
+                      'in_progress': 'IN PLAY',
+                      'pending_confirmation': 'AWAITING RESULT',
+                      'disputed': 'DISPUTED',
+                    }[t.status] || t.status.toUpperCase();
+                    return (
+                      <tr key={t.id} data-testid={`tournament-card-${t.id}`}
+                        onClick={() => navigate(`/tournament/${t.id}`)}
+                        className="border-b border-[#262626] hover:bg-[#1A1A1A]/60 transition-colors cursor-pointer">
+                        <td className="px-4 py-4 text-white font-bold">{opponentLabel}</td>
+                        <td className="px-4 py-4 text-[#A3A3A3]">{t.game_name}</td>
+                        <td className="px-4 py-4 text-[#007AFF] font-bold">{t.platform}</td>
+                        <td className="px-4 py-4 text-[#A3A3A3] whitespace-nowrap">{new Date(t.start_time).toLocaleString([], {dateStyle:'medium', timeStyle:'short'})}</td>
+                        <td className="px-4 py-4 text-right text-white font-black tracking-tighter" style={{fontFamily:'Chivo'}}>{t.stake_amount} CR</td>
+                        <td className={`px-4 py-4 text-center font-bold text-xs ${statusColor}`}>{statusLabel}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

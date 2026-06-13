@@ -218,7 +218,8 @@ function BrowseGames() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="games-grid">
             {games.map((game) => (
-              <div key={game.id} className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#3F3F3F] transition-colors group" data-testid={`game-card-${game.id}`}>
+              <div key={game.id} onClick={() => navigate(`/games/${game.id}/leaderboard`)}
+                className="border border-[#262626] bg-[#141414]/85 backdrop-blur-sm hover:border-[#FF3B30] cursor-pointer transition-colors group" data-testid={`game-card-${game.id}`}>
                 <div className="h-32 overflow-hidden bg-[#1A1A1A] flex items-center justify-center relative">
                   {game.image_url ? (
                     <img src={game.image_url} alt={game.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
