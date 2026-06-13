@@ -82,7 +82,7 @@ def test_email_service_swallows_sendgrid_403():
 
 # ---------- 2. Constants ----------
 def test_latency_constants_exist():
-    with open("/app/backend/server.py", "r") as f:
+    with open("/app/backend/core.py", "r") as f:
         src = f.read()
     assert "LATENCY_WARN_MS = 100" in src
     assert "LATENCY_HIGH_MS = 200" in src

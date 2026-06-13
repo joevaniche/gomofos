@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 11 regression test after the 3,575-line monolith refactor into core.py + models.py + services.py + 13 routers/. Backend: 38 passed / 1 skipped across 3 suites (iter9 decline+refund 12/12, iter10 health+game-leaderboard 5/5+1 skipped, NEW iter11 broad regression 21/21). Frontend smoke PASS: login as davidjovanic@yahoo.com.au, navigated /dashboard /games /tournaments /competitions /prizes /leaderboard /players /profile /games/{id}/leaderboard — every page renders with TopNav (data-testid='top-nav' present on all), 0 console errors, wallet badge visible. Game card click → GameLeaderboard for '7 Days to Die' rendered correctly with empty-state. ONE REAL BUG found & FIXED during testing: brute-force lockout in routers/auth.py L109 was crashing with TypeError (tz-naive vs tz-aware datetime comparison) returning HTTP 500 instead of 429 on the lockout attempt. Likely pre-existing pre-refactor but exposed by my regression test. Root cause: Mongo persists timezone-naive datetime; code compared against datetime.now(timezone.utc). Fix: normalize lockout_until to UTC-aware before comparison. Re-tested: 429 now fires correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Brute-force lockout split across pods due to K8s ingress load-balancing — request.client.host sees the LB IP (10.79.128.145/.146), so 5 attempts on one pod can take ~10-12 calls in practice. Test compensates with 20 attempts. Code should preferably read X-Forwarded-For (lockout still works, just less aggressive than spec intends)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_refactor_regression.py",
+    "/app/backend/tests/test_iter9_decline_refund.py",
+    "/app/backend/tests/test_iter10_health_and_game_leaderboard.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [
+    "(OPTIONAL) Strengthen brute-force lockout by reading X-Forwarded-For header so per-user counter is global across pods. Code path: routers/auth.py around L102-104 (identifier = ip:email).",
+    "(NICE-TO-HAVE) Mongo persistence layer drops tzinfo — consider a global helper to re-attach UTC tzinfo on read, or always store ISO strings, to prevent future regressions of the same class as the lockout bug."
+  ],
+  "critical_code_review_comments": [
+    "routers/auth.py L109 had a critical defect: comparing tz-aware datetime.now(timezone.utc) with tz-naive lockout_until from Mongo raised TypeError and returned 500 instead of 429. FIXED in this iteration with a tzinfo normalise step. Verify with new test_login_bruteforce_lockout.",
+    "routers/users.py L215-216: non-self GET /api/users/{user_id} sets profile['wallet_balance'] = 0.0 (rather than removing the key). This satisfies the 'wallet hidden' requirement (real balance is not exposed) but a stricter contract would drop the key entirely or return None. PublicProfileResponse defines wallet_balance as a required field, so 0.0 is intentional. Acceptable.",
+    "server.py is a clean 91-line entry. Router import order doesn't matter (FastAPI dedupes by path+method). Startup hooks (index creation, admin seed, storage init, reminder loop) are preserved correctly.",
+    "Mongo `_id` is consistently translated to `id` strings in PublicProfileResponse, UserResponse, and competition_to_dict — no ObjectId serialization leaks observed.",
+    "routers/referrals.py: GET /api/referrals/mine returns a dict {bonus_per_signup, referrals[], total_earned} (not a bare list). This matches the contract and existing frontend, but the review-request wording 'lists' should be read as 'returns the user's referrals' rather than a JSON array.",
+    "routers/tournaments.py correctly enforces `platform` as a required Pydantic field — POST without platform returns 422 as expected.",
+    "Login uses HttpOnly cookies; response body has no token — confirmed test client must use requests.Session() to preserve cookies (matches pre-refactor behavior).",
+    "Admin authorization on /api/admin/* is enforced — non-admin (davidjovanic) gets 403 on /api/admin/disputes as expected.",
+    "Game POST requires `platform` (singular string), not `platforms` (list) — matches existing model."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_refactor_regression.py (NEW, 21 tests covering boot/auth/profile/games/tournaments/challenges/wallet/prizes/admin/referrals/competitions/highlights)",
+    "/app/backend/routers/auth.py (FIX: normalise lockout_until tzinfo before datetime comparison in /auth/login)"
+  ],
+  "success_rate": {
+    "backend": "100% (38/38 ran, 1 pre-existing skip for lack of multi-row leaderboard seed data)",
+    "frontend": "100% (login + 8 navigation routes + game leaderboard, 0 console errors, TopNav present on every page)"
+  },
+  "test_credentials": "davidjovanic@yahoo.com.au / Andmay123 (regular, ~960 CR after test-run); admin@esportsbet.com / admin123 (no whatsapp_phone so no 2FA gate).",
+  "seed_data_creation": "Test-prefixed users (TEST_reg_*), one TEST_game_* game per run, ad-hoc tournaments under davidjovanic, one TEST_ref_* referral per run. All low-volume and harmless.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refactored backend works cleanly. Auth uses HttpOnly cookies — always use requests.Session(). For brute-force lockout tests, send >=20 attempts because ingress load-balances across two pods (10.79.128.145 / .146) and each pod tracks attempts independently. Tournament POST requires `platform` field; Game POST also requires `platform` (singular). /api/users/{id} returns wallet_balance=0.0 for non-self requests rather than omitting the field. /api/referrals/mine returns a dict not a list. The tz-naive Mongo datetime issue could lurk in other code paths (highlights, password_reset_tokens, tournament start_time) — worth a global audit.",
+  "rca of the issue": "Brute-force lockout 500 bug: PyMongo/Motor returns tz-naive datetime objects from Mongo. The locked_until field was stored tz-aware (line 120: datetime.now(timezone.utc) + timedelta(...)) but read back tz-naive. The comparison `datetime.now(timezone.utc) < lockout_until` then raised TypeError: can't compare offset-naive and offset-aware datetimes, hitting the Starlette exception handler and returning 500. Reproduce: hit /api/auth/login with a wrong password >=5 times on the same pod for the same email. Mitigation: lockout_until.replace(tzinfo=timezone.utc) when tzinfo is None, before comparison. Applied at routers/auth.py L106-112."
+}
