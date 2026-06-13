@@ -340,7 +340,7 @@ async def register(user_data: UserRegister, response: Response):
         created_at=user_doc["created_at"]
     )
 
-@api_router.post("/auth/login", response_model=UserResponse)
+@api_router.post("/auth/login")
 async def login(credentials: UserLogin, request: Request, response: Response):
     email = credentials.email.lower()
     ip = request.client.host
@@ -370,14 +370,16 @@ async def login(credentials: UserLogin, request: Request, response: Response):
     
     # Clear failed attempts
     await db.login_attempts.delete_one({"identifier": identifier})
-    
+
+    # ADMIN 2FA gate — admins must complete a WhatsApp code challenge before getting a session
+    if user.get("role") == "admin" and (user.get("whatsapp_phone") or "").strip():
+        return await _start_admin_2fa(user, response)
+
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
-    
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    
     return UserResponse(
         id=user_id,
         email=user["email"],
@@ -387,6 +389,10 @@ async def login(credentials: UserLogin, request: Request, response: Response):
         total_losses=user.get("total_losses", 0),
         rank=user.get("rank", 0),
         role=user.get("role"),
+        status=user.get("status") or "active",
+        on_hold_reason=user.get("on_hold_reason"),
+        dispute_stats=user.get("dispute_stats"),
+        whatsapp_phone=user.get("whatsapp_phone"),
         created_at=user["created_at"]
     )
 
@@ -3272,6 +3278,84 @@ async def _send_whatsapp(to_phone: str, body: str) -> bool:
     except Exception as e:
         logger.warning(f"WhatsApp send failed: {e}")
         return False
+
+
+# ============ ADMIN 2FA via WhatsApp ============
+TWOFA_CODE_TTL_SECONDS = 300        # 5 min
+TWOFA_MAX_ATTEMPTS = 3
+
+class TwoFAChallenge(BaseModel):
+    challenge_id: str
+    code: str
+
+
+async def _start_admin_2fa(user_doc: dict, response: Response) -> dict:
+    """Generate a 6-digit code, WhatsApp it, return challenge id + ttl."""
+    phone = (user_doc.get("whatsapp_phone") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail=(
+            "Admin 2FA is enabled but no WhatsApp number is on this account. "
+            "Sign in once with admin@... then add a WhatsApp number under Profile → Match Reminders."
+        ))
+    import secrets
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    challenge_id = str(uuid.uuid4())
+    await db.twofa_challenges.insert_one({
+        "id": challenge_id,
+        "user_id": str(user_doc["_id"]),
+        "code_hash": hash_password(code),
+        "attempts": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=TWOFA_CODE_TTL_SECONDS)).isoformat(),
+    })
+    sent = await _send_whatsapp(phone,
+        f"🔐 GOMOFOS admin sign-in code: {code}\n\nValid for 5 minutes. Don't share this code with anyone.")
+    if not sent:
+        # Surface the failure so admin can fix Twilio/phone instead of being locked out
+        raise HTTPException(status_code=500, detail=(
+            "Couldn't deliver the 2FA code via WhatsApp. Check Twilio credentials and "
+            "make sure your admin WhatsApp number has joined the Twilio sandbox."
+        ))
+    return {"requires_2fa": True, "challenge_id": challenge_id, "expires_in": TWOFA_CODE_TTL_SECONDS}
+
+
+@api_router.post("/auth/2fa/verify", response_model=UserResponse)
+async def verify_2fa(payload: TwoFAChallenge, response: Response):
+    chal = await db.twofa_challenges.find_one({"id": payload.challenge_id})
+    if not chal:
+        raise HTTPException(status_code=400, detail="Invalid or expired challenge")
+    expires = datetime.fromisoformat(chal["expires_at"])
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires:
+        await db.twofa_challenges.delete_one({"id": payload.challenge_id})
+        raise HTTPException(status_code=400, detail="Code expired — log in again to get a new code")
+    if chal.get("attempts", 0) >= TWOFA_MAX_ATTEMPTS:
+        await db.twofa_challenges.delete_one({"id": payload.challenge_id})
+        raise HTTPException(status_code=429, detail="Too many attempts. Log in again to get a new code")
+    if not verify_password(payload.code.strip(), chal["code_hash"]):
+        await db.twofa_challenges.update_one({"id": payload.challenge_id}, {"$inc": {"attempts": 1}})
+        raise HTTPException(status_code=400, detail="Wrong code")
+    # Success — set the session cookies and clean up
+    user_doc = await db.users.find_one({"_id": ObjectId(chal["user_id"])})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    access_token = create_access_token(str(user_doc["_id"]), user_doc["email"])
+    refresh_token = create_refresh_token(str(user_doc["_id"]))
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    await db.twofa_challenges.delete_one({"id": payload.challenge_id})
+    return UserResponse(
+        id=str(user_doc["_id"]), email=user_doc["email"], username=user_doc["username"],
+        wallet_balance=user_doc.get("wallet_balance", 0.0),
+        total_wins=user_doc.get("total_wins", 0), total_losses=user_doc.get("total_losses", 0),
+        rank=user_doc.get("rank", 0), role=user_doc.get("role"),
+        status=user_doc.get("status") or "active",
+        on_hold_reason=user_doc.get("on_hold_reason"),
+        dispute_stats=user_doc.get("dispute_stats"),
+        whatsapp_phone=user_doc.get("whatsapp_phone"),
+        created_at=user_doc["created_at"],
+    )
 
 
 async def _reminder_scheduler_loop():
