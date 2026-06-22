@@ -6,6 +6,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Coins, Users, Trophy, PaperPlaneRight, Upload, Image as ImageIcon, WifiHigh, WifiLow, WifiMedium, ShieldWarning, CheckCircle, XLogo, VideoCamera } from '@phosphor-icons/react';
 import { toast } from 'sonner';
+import useLatencyPing from '../hooks/useLatencyPing';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const WS_URL = process.env.REACT_APP_BACKEND_URL.replace(/^http/, 'ws');
@@ -47,6 +48,12 @@ function TournamentDetails() {
   }, [id]);
 
   // === LATENCY WEBSOCKET (only when in_progress) ===
+  // Also runs a 60-sec HTTP-baseline ping for admin dispute graphs (in addition to the WS).
+  useLatencyPing({
+    tournament_id: id,
+    active: tournament?.status === 'in_progress' && tournament?.participants?.some(p => p.user_id === user?.id),
+  });
+
   useEffect(() => {
     if (!tournament || tournament.status !== 'in_progress') return;
     if (!isParticipant) return;
@@ -225,6 +232,7 @@ function TournamentDetails() {
   }
 
   const isParticipant = tournament?.participants?.some(p => p.user_id === user?.id);
+
   const isCreator = tournament?.creator_id === user?.id;
   const isAdmin = user?.role === 'admin';
   const canJoin = tournament?.status === 'open' && !isParticipant && tournament?.current_players < tournament?.max_players;

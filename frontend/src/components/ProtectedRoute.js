@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import AdRail from './AdRail';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -17,7 +18,12 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  return children;
+  return (
+    <>
+      {children}
+      <AdRail />
+    </>
+  );
 }
 
 export default ProtectedRoute;

@@ -2,7 +2,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import jwt
@@ -467,7 +467,8 @@ async def record_latency(tournament_id: str, latency_ms: float, user: dict = Dep
         "tournament_id": tournament_id,
         "user_id": user["id"],
         "latency_ms": float(latency_ms),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
     })
     return {"recorded": True}
 
@@ -541,7 +542,8 @@ async def latency_websocket(websocket: WebSocket, tournament_id: str, token: str
                         "tournament_id": tournament_id,
                         "user_id": user_id,
                         "latency_ms": rtt,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
                     })
     except WebSocketDisconnect:
         pass

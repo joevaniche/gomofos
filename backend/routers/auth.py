@@ -93,6 +93,7 @@ async def register(user_data: UserRegister, response: Response):
         total_losses=0,
         rank=0,
         role=None,
+        can_manage_ads=False,
         created_at=user_doc["created_at"]
     )
 
@@ -150,6 +151,7 @@ async def login(credentials: UserLogin, request: Request, response: Response):
         on_hold_reason=user.get("on_hold_reason"),
         dispute_stats=user.get("dispute_stats"),
         whatsapp_phone=user.get("whatsapp_phone"),
+        can_manage_ads=bool(user.get("can_manage_ads")),
         created_at=user["created_at"]
     )
 
@@ -179,6 +181,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         on_hold_reason=fresh.get("on_hold_reason"),
         dispute_stats=fresh.get("dispute_stats"),
         whatsapp_phone=fresh.get("whatsapp_phone"),
+        can_manage_ads=bool(fresh.get("can_manage_ads")),
         created_at=fresh["created_at"],
     )
 
@@ -273,5 +276,6 @@ async def verify_2fa(payload: TwoFAChallenge, response: Response):
         on_hold_reason=user_doc.get("on_hold_reason"),
         dispute_stats=user_doc.get("dispute_stats"),
         whatsapp_phone=user_doc.get("whatsapp_phone"),
+        can_manage_ads=bool(user_doc.get("can_manage_ads")),
         created_at=user_doc["created_at"],
     )

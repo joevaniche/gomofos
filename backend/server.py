@@ -32,6 +32,8 @@ from routers import prizes as _prizes  # noqa: F401
 from routers import highlights as _highlights  # noqa: F401
 from routers import referrals as _referrals  # noqa: F401
 from routers import misc as _misc  # noqa: F401
+from routers import ads as _ads  # noqa: F401
+from routers import admin_latency as _admin_latency  # noqa: F401
 
 app.include_router(api_router)
 
@@ -53,6 +55,12 @@ async def startup_event():
     await db.highlight_reels.create_index([("user_id", 1), ("created_at", -1)])
     await db.highlight_reels.create_index("id", unique=True)
     await db.tournament_latency.create_index([("tournament_id", 1), ("user_id", 1), ("timestamp", 1)])
+    # 30-day TTL on latency samples — admin can extend per-match if a dispute is open.
+    await db.tournament_latency.create_index("expires_at", expireAfterSeconds=0)
+    await db.competition_latency.create_index("expires_at", expireAfterSeconds=0)
+    # Ads indexes
+    await db.advertisements.create_index("id", unique=True)
+    await db.advertisements.create_index([("active", 1), ("created_at", -1)])
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@esportsbet.com")

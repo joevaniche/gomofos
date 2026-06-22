@@ -2,7 +2,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from bson import ObjectId
@@ -271,6 +271,7 @@ async def record_competition_latency(
         "user_id": user["id"],
         "latency_ms": float(latency_ms),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
     }
     if match_id:
         doc["match_id"] = match_id

@@ -20,7 +20,13 @@ export default function TopNav() {
     { to: '/players',       label: 'PLAYERS',       testid: 'nav-players' },
     { to: '/games',         label: 'GAMES',         testid: 'nav-games' },
     { to: '/leaderboard',   label: 'LEADERBOARD',   testid: 'nav-leaderboard' },
-    ...(user?.role === 'admin' ? [{ to: '/admin/disputes', label: 'DISPUTES', testid: 'nav-admin-disputes', accent: true }] : []),
+    ...(user?.role === 'admin' ? [
+      { to: '/admin/disputes', label: 'DISPUTES', testid: 'nav-admin-disputes', accent: true },
+      { to: '/admin/latency',  label: 'LATENCY',  testid: 'nav-admin-latency',  accent: true },
+    ] : []),
+    ...(user?.role === 'admin' || user?.can_manage_ads ? [
+      { to: '/admin/ads', label: 'ADS', testid: 'nav-admin-ads', accent: true },
+    ] : []),
     { to: '/profile',       label: 'PROFILE',       testid: 'nav-profile' },
   ];
 

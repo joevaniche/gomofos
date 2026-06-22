@@ -20,6 +20,9 @@ import Competitions from './pages/Competitions';
 import CompetitionDetails from './pages/CompetitionDetails';
 import PublicHighlight from './pages/PublicHighlight';
 import AdminDisputes from './pages/AdminDisputes';
+import AdminAds from './pages/AdminAds';
+import AdminAdManagers from './pages/AdminAdManagers';
+import AdminLatency from './pages/AdminLatency';
 import Prizes from './pages/Prizes';
 import GameLeaderboard from './pages/GameLeaderboard';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -43,6 +46,9 @@ function App() {
             <Route path="/competitions" element={<ProtectedRoute><Competitions /></ProtectedRoute>} />
             <Route path="/competition/:id" element={<ProtectedRoute><CompetitionDetails /></ProtectedRoute>} />
             <Route path="/admin/disputes" element={<ProtectedRoute><AdminDisputes /></ProtectedRoute>} />
+            <Route path="/admin/ads" element={<ProtectedRoute><AdminAds /></ProtectedRoute>} />
+            <Route path="/admin/ad-managers" element={<ProtectedRoute><AdminAdManagers /></ProtectedRoute>} />
+            <Route path="/admin/latency" element={<ProtectedRoute><AdminLatency /></ProtectedRoute>} />
             <Route path="/prizes" element={<ProtectedRoute><Prizes /></ProtectedRoute>} />
             <Route path="/games/:id/leaderboard" element={<ProtectedRoute><GameLeaderboard /></ProtectedRoute>} />
             <Route path="/tournament/:id" element={<ProtectedRoute><TournamentDetails /></ProtectedRoute>} />

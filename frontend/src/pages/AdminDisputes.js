@@ -182,6 +182,15 @@ function AdminDisputes() {
                           Latency suggests <strong>{advantageUser.username}</strong> deserves the tie-break (lower-latency connection).
                         </p>
                       )}
+                      <a
+                        href={d.kind === 'tournament'
+                          ? `/admin/latency?kind=tournament&id=${d.id}`
+                          : `/admin/latency?kind=competition&id=${d.competition_id}&match_id=${d.id}`}
+                        data-testid={`view-graph-${key}`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-[#007AFF] hover:text-white mt-2"
+                      >
+                        VIEW FULL SPIKE/DIP GRAPH →
+                      </a>
                     </div>
                   )}
 

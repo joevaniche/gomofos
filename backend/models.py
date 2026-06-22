@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     on_hold_reason: Optional[str] = None
     dispute_stats: Optional[dict] = None
     whatsapp_phone: Optional[str] = None
+    can_manage_ads: Optional[bool] = False
     created_at: str
 
 

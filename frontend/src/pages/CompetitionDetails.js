@@ -6,6 +6,7 @@ import Logo from '../components/Logo';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Coins, Crosshair as Swords, ArrowLeft, CheckCircle, XCircle } from '@phosphor-icons/react';
 import { toast } from 'sonner';
+import useLatencyPing from '../hooks/useLatencyPing';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -20,6 +21,16 @@ function CompetitionDetails() {
   const [notes, setNotes] = useState('');
 
   useEffect(() => { load(); }, [id]);
+
+  // Continuous 60-sec latency ping for active head-to-head matches. The hook is
+  // safe to call before `comp` loads — it just won't fire until `active=true`.
+  const _pendingMatch = comp?.matches?.find(m => m.status === 'pending_confirmation');
+  const _isPlayer = comp ? (comp.player_a_id === user?.id || comp.player_b_id === user?.id) : false;
+  useLatencyPing({
+    competition_id: id,
+    match_id: _pendingMatch?.id,
+    active: !!(comp && comp.status === 'active' && _isPlayer),
+  });
 
   const load = async () => {
     setLoading(true);
