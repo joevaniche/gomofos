@@ -58,6 +58,11 @@ async def startup_event():
     # 30-day TTL on latency samples — admin can extend per-match if a dispute is open.
     await db.tournament_latency.create_index("expires_at", expireAfterSeconds=0)
     await db.competition_latency.create_index("expires_at", expireAfterSeconds=0)
+    # Backfill expires_at on legacy samples (pre-TTL rows) so the TTL applies retroactively.
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) + timedelta(days=30)
+    await db.tournament_latency.update_many({"expires_at": {"$exists": False}}, {"$set": {"expires_at": cutoff}})
+    await db.competition_latency.update_many({"expires_at": {"$exists": False}}, {"$set": {"expires_at": cutoff}})
     # Ads indexes
     await db.advertisements.create_index("id", unique=True)
     await db.advertisements.create_index([("active", 1), ("created_at", -1)])

@@ -272,6 +272,67 @@
 ### Backlog (still open)
 - **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
 - **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
-- **P2**: Audit other code paths for the same tz-naive Mongo datetime class of bug (password_reset_tokens, tournament start_time, highlights created_at).
-- **P3**: Strengthen brute-force lockout by reading X-Forwarded-For so the per-user counter is global across pods (K8s ingress LB currently splits attempts across 2 pods).
+
+
+## Iteration 12: Advertising Platform + Logo Refresh + Admin Latency Graph (Feb 2026)
+### Done
+- **NEW LOGO** (Logo 3rd.png — red shooter + blue racer crest). `/app/frontend/public/gomofos-logo.png` replaced; centralized `<Logo />` component flows the new image to every page. Favicon + `<title>` updated to `GoMofos — Esports Staking`.
+
+- **ADVERTISING — admin-managed sidebar ads**:
+  - **Backend** (`/app/backend/routers/ads.py`, NEW, 11 endpoints): full CRUD on `advertisements` collection (name, image_url, click_url, active, impression_count, click_count, created_by/_username). Public `GET /api/ads/rotation` returns active ads; client-side `<AdRail />` picks 3 and rotates each slot every ~5 sec. `POST /api/ads/{id}/impression` records views. `GET /api/ads/{id}/click` does a 302 redirect + bumps counter (no auth so analytics survive logout). Image upload at `POST /api/admin/ads/upload-image` (4 MB cap, PNG/JPG/WEBP/GIF). Search by name or URL via `?q=`.
+  - **Permission model**: site `admin` always has access. Site admins promote other users via `POST /api/admin/ad-managers { user_id }` which sets `can_manage_ads=True`. `GET /api/admin/ad-managers` lists admins + ad-managers. `DELETE /api/admin/ad-managers/{id}` revokes. Ad-managers can do `/admin/ads` CRUD but CANNOT touch disputes, latency, or user admin (escalation boundary verified by automated test).
+  - **UserResponse.can_manage_ads**: bool, default False — exposed on `/auth/me`, `/login`, `/register`, `/2fa/verify` so the frontend can gate the ADS tab.
+  - **Frontend**:
+    - `/app/frontend/src/components/AdRail.js` — fixed right-rail (xl+ viewports), 3 stacked slots, staggered ~5 sec rotation, impression-once-per-session.
+    - `/app/frontend/src/components/ProtectedRoute.js` — renders AdRail alongside protected children (one mount, no per-page changes).
+    - `/app/frontend/src/pages/AdminAds.js` — searchable list, create form with inline image upload, active toggle, delete.
+    - `/app/frontend/src/pages/AdminAdManagers.js` — search-by-username, grant/revoke access.
+    - `/app/frontend/src/components/TopNav.js` — DISPUTES + LATENCY tabs for admin, ADS tab for admin OR ad-manager.
+
+- **ADMIN LATENCY GRAPH** (admin-only):
+  - **Backend** (`/app/backend/routers/admin_latency.py`, NEW):
+    - `GET /admin/latency/tournament/{id}` → per-tournament line-chart payload: `{series:[{user_id,username,points:[{t,ms}],avg_ms,max_ms,status}], thresholds:{warn:100, high:200}}`.
+    - `GET /admin/latency/competition/{id}?match_id=...` → same shape for h2h matches.
+    - `GET /admin/latency/dashboard?q=` → searchable list of every match with samples, disputed ones first.
+    - `POST /admin/latency/tournament/{id}/extend-retention?days=N` (1..730) → bulk-updates `tournament_latency.expires_at` for that match + sets `tournaments.latency_retention_extended_until`. Same for competition.
+  - **TTL retention**: every latency sample now has `expires_at = now + 30 days`. Mongo TTL index auto-deletes old rows. Startup backfills `expires_at` on pre-iter12 samples so the policy applies retroactively.
+  - **Auto-ping every 60 sec**: new `useLatencyPing` hook in `/app/frontend/src/hooks/useLatencyPing.js` runs an HTTP RTT ping to `/api/health/time` every 60 sec while a tournament is `in_progress` OR a competition match is `pending_confirmation`. Wired into `TournamentDetails.js` + `CompetitionDetails.js`. Existing WebSocket-based ping continues to coexist for sub-second sampling during live play.
+  - **Frontend**:
+    - `/app/frontend/src/components/LatencyGraph.js` — recharts `<LineChart />` with one line per player + dashed reference lines at warn (100ms) + high (200ms). Per-player summary chips show avg / peak / status.
+    - `/app/frontend/src/pages/AdminLatency.js` — left list of matches, right pane shows graph. Deep-link via `?kind=tournament&id=...&match_id=...`. EXTEND RETENTION button prompts for days.
+    - `/app/frontend/src/pages/AdminDisputes.js` — each dispute card now shows "VIEW FULL SPIKE/DIP GRAPH →" link that deep-links to the right `/admin/latency` URL.
+
+### Verified
+- **Backend pytest 28/28 PASS** in `/app/backend/tests/test_iter12_ads_latency.py` + iter11 baseline still 38/38.
+- **Frontend Playwright PASS** — admin sees DISPUTES/LATENCY/ADS tabs; regular user does not; granting `can_manage_ads` makes ADS appear (only); /admin/ads, /admin/ad-managers, /admin/latency all render for admin and redirect non-admin to /dashboard; AdRail renders 3 stacked ad-slots when ads exist + null when empty (no error); /admin/disputes deep-link works.
+- **Manual smoke screenshots** confirmed AdminLatency already discovered an existing disputed "Call of Duty: MW3" tournament with 6 latency samples and rendered the disputed pill in red — feature is wired correctly to real data.
+
+### Files added/changed
+- `/app/backend/routers/ads.py` (NEW)
+- `/app/backend/routers/admin_latency.py` (NEW)
+- `/app/backend/routers/tournaments.py` (latency samples now persist `expires_at`)
+- `/app/backend/routers/competitions.py` (same)
+- `/app/backend/routers/auth.py` (UserResponse populates `can_manage_ads`)
+- `/app/backend/models.py` (added `can_manage_ads: bool` to UserResponse)
+- `/app/backend/server.py` (registers 2 new routers, creates TTL + ads indexes, backfills `expires_at`)
+- `/app/frontend/src/components/AdRail.js` (NEW)
+- `/app/frontend/src/components/LatencyGraph.js` (NEW)
+- `/app/frontend/src/components/ProtectedRoute.js` (mounts AdRail)
+- `/app/frontend/src/components/TopNav.js` (admin/ad-manager tabs)
+- `/app/frontend/src/hooks/useLatencyPing.js` (NEW)
+- `/app/frontend/src/pages/AdminAds.js` (NEW)
+- `/app/frontend/src/pages/AdminAdManagers.js` (NEW)
+- `/app/frontend/src/pages/AdminLatency.js` (NEW)
+- `/app/frontend/src/pages/AdminDisputes.js` (deep-link to latency graph)
+- `/app/frontend/src/pages/TournamentDetails.js` + `CompetitionDetails.js` (auto-ping hook)
+- `/app/frontend/src/App.js` (3 new routes)
+- `/app/frontend/public/gomofos-logo.png` (REPLACED — new crest)
+- `/app/frontend/public/index.html` (favicon + title)
+- `/app/backend/tests/test_iter12_ads_latency.py` (NEW, 28 cases)
+
+### Backlog (still open)
+- **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
+- **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
+- **P3**: Orphan latency samples — 2 of 3 tournament_ids in `tournament_latency` reference deleted tournaments. Backfill applied so they'll TTL-expire in 30 days. Optionally surface them under an "Unknown match" bucket.
+- **P3**: A/B target ads by game category or country so an admin can run "PS5-only" or "Australia-only" campaigns.
 
