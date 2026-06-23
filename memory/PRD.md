@@ -333,6 +333,56 @@
 ### Backlog (still open)
 - **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
 - **P2**: Add a "view leaderboard" affordance on game cards (currently the entire card is clickable but has no visual cue).
-- **P3**: Orphan latency samples — 2 of 3 tournament_ids in `tournament_latency` reference deleted tournaments. Backfill applied so they'll TTL-expire in 30 days. Optionally surface them under an "Unknown match" bucket.
-- **P3**: A/B target ads by game category or country so an admin can run "PS5-only" or "Australia-only" campaigns.
+
+
+## Iteration 13: Ad Analytics + Logo Cache Fix + AdRail Redesign + Site Footer (Feb 2026)
+### Done
+- **🎯 AD ANALYTICS DASHBOARD** (`/admin/ads/analytics`):
+  - Backend: `GET /api/admin/ads/analytics?days=N` (1..365, default 7) returns `{window_days, totals, rows[]}` per ad with window + lifetime impressions/clicks/CTR. `GET /api/admin/ads/analytics/export?days=N` returns invoice-ready CSV with attachment Content-Disposition. Reuses `ads_analytics()` so CSV and JSON can never diverge. Both endpoints gated by `_require_ad_admin` (admin OR ad-manager).
+  - Event logging: new `ad_events` collection (kind: impression/click, ad_id, timestamp, expires_at). TTL 90 days + compound index `(ad_id, timestamp DESC)`. Impression on **inactive** ad is silently dropped (no counter bump, no event).
+  - Frontend: KPI cards (total impressions/clicks/CTR/active), 1D/7D/30D window selector (refetches data), CSV export button (opens browser download via cookie session), per-ad table sorted by window impressions.
+
+- **🎨 LOGO CACHE FIX**:
+  - Copied logo to a **new filename** (`/gomofos-crest.png`) + appended `?v=3` query string in `<Logo />`. Both invalidate browser + CDN edge caches. Live server will fetch fresh on next visit.
+  - Updated favicon + apple-touch-icon in `index.html` to the new path.
+  - The old `/gomofos-logo.png` stays in place to avoid breaking any external email references.
+
+- **📐 AD RAIL REDESIGN** (`/app/frontend/src/components/AdRail.js` — REWRITTEN):
+  - **Desktop (xl+)**: `xl:absolute xl:right-6 xl:top-24 xl:w-[170px]` — scrolls 1:1 with the page (parent in ProtectedRoute is `position: relative`), no longer fixed. Verified test: 204px page scroll = 204px rail Y delta.
+  - **Mobile/tablet**: inline `w-full max-w-md mx-auto px-6 py-8 flex flex-col gap-12` — renders at the bottom of every page (was hidden before).
+  - **Ad dimensions**: image area now `aspectRatio: '10 / 7'` (~30% shorter than the previous square).
+  - **Vertical spacing**: `gap-12` (3rem) between slots — more breathing room.
+  - **Content-overlap fix**: `ProtectedRoute` wraps children in `xl:pr-[200px]` so page text reserves the right column. No more text-under-ads.
+
+- **🦶 SITE FOOTER**:
+  - New `<Footer />` with the new logo + 6 links: ABOUT US, CAREERS, SUPPORT, CONTACT, TERMS OF USE, PRIVACY POLICY (each `data-testid`'d for tests).
+  - Rendered on every protected page (via `ProtectedRoute`) AND on the public `LandingPage`. Placeholder pages at `/about, /careers, /support, /contact, /terms, /privacy` via a shared `<StaticPage />` template — public routes (no auth) for now.
+
+### Verified
+- **Backend pytest 79/79 PASS** — 13/13 new iter13 (`test_iter13_ad_analytics.py`: analytics JSON, CSV export, ad_events logging incl. 90-day TTL, inactive-ad guard, ad-manager access) + iter12 28/28 + iter11 21/21 + iter10 5/5 + iter9 12/12. Zero regressions.
+- **Frontend Playwright PASS** — logo cache-bust (200 OK on `/gomofos-crest.png?v=3`); Footer + 6 testid'd links on every route; static pages render with testids; AdRail desktop scroll-with-page verified pixel-perfect; AdRail mobile inline; analytics page KPI + window selector + CSV export; non-admin/non-ad-manager redirected; no content-under-ads overlap.
+
+### Files added/changed
+- `/app/frontend/public/gomofos-crest.png` (NEW physical file)
+- `/app/frontend/src/components/Logo.js` (new filename + `?v=3` cache-bust)
+- `/app/frontend/src/components/AdRail.js` (REWRITTEN)
+- `/app/frontend/src/components/ProtectedRoute.js` (relative wrapper + Footer)
+- `/app/frontend/src/components/Footer.js` (NEW)
+- `/app/frontend/src/components/StaticPage.js` (NEW shared template)
+- `/app/frontend/src/pages/About.js, Careers.js, Support.js, Contact.js, Terms.js, Privacy.js` (NEW)
+- `/app/frontend/src/pages/AdminAdAnalytics.js` (NEW)
+- `/app/frontend/src/pages/AdminAds.js` (VIEW ANALYTICS button)
+- `/app/frontend/src/pages/LandingPage.js` (mounts Footer)
+- `/app/frontend/src/App.js` (8 new routes)
+- `/app/frontend/public/index.html` (favicon updated)
+- `/app/backend/routers/ads.py` (ad_events logging on impression+click, analytics JSON + CSV endpoints)
+- `/app/backend/server.py` (TTL + compound index on ad_events)
+- `/app/backend/tests/test_iter13_ad_analytics.py` (NEW, 13 tests)
+
+### Backlog (still open)
+- **P2**: SendGrid sender verification on `helpdesk@gomofos.com` for emails to actually deliver.
+- **P2**: Add a "view leaderboard" affordance on game cards.
+- **P3** (nice-to-have from iter13 testing): Return non-200 when `/api/ads/{id}/impression` is fired against an inactive ad so clients can detect a stale rotation cache.
+- **P3** (nice-to-have): Stream CSV in chunks if ad catalog ever exceeds 1000 ads.
+- **P3** (a11y): Add `aria-label="analytics-window"` to the 1D/7D/30D selector group.
 
