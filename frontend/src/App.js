@@ -25,6 +25,13 @@ import AdminAdManagers from './pages/AdminAdManagers';
 import AdminLatency from './pages/AdminLatency';
 import Prizes from './pages/Prizes';
 import GameLeaderboard from './pages/GameLeaderboard';
+import About from './pages/About';
+import Careers from './pages/Careers';
+import Support from './pages/Support';
+import Contact from './pages/Contact';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
+import AdminAdAnalytics from './pages/AdminAdAnalytics';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
@@ -58,6 +65,15 @@ function App() {
             <Route path="/profile" element={<ProtectedRoute><ProfileView /></ProtectedRoute>} />
             <Route path="/profile/edit" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
             <Route path="/profile/:id" element={<ProtectedRoute><ProfileView /></ProtectedRoute>} />
+            {/* Footer (public) pages */}
+            <Route path="/about" element={<About />} />
+            <Route path="/careers" element={<Careers />} />
+            <Route path="/support" element={<Support />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            {/* Admin ad analytics */}
+            <Route path="/admin/ads/analytics" element={<ProtectedRoute><AdminAdAnalytics /></ProtectedRoute>} />
           </Routes>
           <Toaster position="top-right" />
         </div>

@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import AdRail from './AdRail';
+import Footer from './Footer';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -18,11 +19,17 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
+  // `relative` wrapper anchors the absolutely-positioned AdRail on xl+ so it
+  // scrolls WITH the page (instead of staying fixed) and never sits on top of
+  // text — page content gets `xl:pr-[200px]` to leave a clear right column.
   return (
-    <>
-      {children}
-      <AdRail />
-    </>
+    <div className="relative min-h-screen">
+      <div className="xl:pr-[200px]">
+        {children}
+        <AdRail />
+      </div>
+      <Footer />
+    </div>
   );
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import Logo from '../components/Logo';
+import Footer from '../components/Footer';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Users, Shield, Lightning } from '@phosphor-icons/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -128,6 +129,7 @@ function LandingPage() {
           </button>
         </div>
       </section>
+      <Footer />
     </div>
   );
 }

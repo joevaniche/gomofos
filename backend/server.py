@@ -66,6 +66,9 @@ async def startup_event():
     # Ads indexes
     await db.advertisements.create_index("id", unique=True)
     await db.advertisements.create_index([("active", 1), ("created_at", -1)])
+    # Ad analytics events — TTL 90 days
+    await db.ad_events.create_index("expires_at", expireAfterSeconds=0)
+    await db.ad_events.create_index([("ad_id", 1), ("timestamp", -1)])
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@esportsbet.com")

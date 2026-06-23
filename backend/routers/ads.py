@@ -2,16 +2,18 @@
 - Admin or ad-manager can CRUD ads
 - Admin can promote other users to ad-managers via `can_manage_ads` flag
 - Logged-in users fetch active ads rotation
-- Click + impression tracking
+- Click + impression tracking + 7/30-day analytics with CSV export
 - Image upload via existing storage backend
 """
+import csv
+import io
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from bson import ObjectId
 from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
 from core import api_router, db, get_current_user
@@ -69,7 +71,16 @@ async def get_ad_rotation(limit: int = 12, user: dict = Depends(get_current_user
 @api_router.post("/ads/{ad_id}/impression")
 async def record_ad_impression(ad_id: str, user: dict = Depends(get_current_user)):
     """Client tells us when an ad was actually shown."""
-    await db.advertisements.update_one({"id": ad_id, "active": True}, {"$inc": {"impression_count": 1}})
+    res = await db.advertisements.update_one({"id": ad_id, "active": True}, {"$inc": {"impression_count": 1}})
+    if res.matched_count:
+        # Log event for time-windowed analytics (90-day TTL)
+        await db.ad_events.insert_one({
+            "ad_id": ad_id,
+            "kind": "impression",
+            "user_id": user.get("id"),
+            "timestamp": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=90),
+        })
     return {"ok": True}
 
 
@@ -81,6 +92,13 @@ async def record_ad_click(ad_id: str):
     if not ad or not ad.get("active", True):
         raise HTTPException(status_code=404, detail="Ad not found")
     await db.advertisements.update_one({"id": ad_id}, {"$inc": {"click_count": 1}})
+    # Log event (anonymous click — no user_id)
+    await db.ad_events.insert_one({
+        "ad_id": ad_id,
+        "kind": "click",
+        "timestamp": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=90),
+    })
     return RedirectResponse(url=ad["click_url"], status_code=302)
 
 
@@ -210,3 +228,107 @@ async def revoke_ad_manager(user_id: str, user: dict = Depends(get_current_user)
     await _require_site_admin(user)
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"can_manage_ads": False}})
     return {"revoked": user_id}
+
+
+
+# ============ ANALYTICS ============
+async def _aggregate_window(days: int):
+    """Group ad_events by (ad_id, kind) within the last `days` days."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": cutoff}}},
+        {"$group": {"_id": {"ad_id": "$ad_id", "kind": "$kind"}, "count": {"$sum": 1}}},
+    ]
+    by_ad = {}
+    async for e in db.ad_events.aggregate(pipeline):
+        ad_id = e["_id"]["ad_id"]
+        kind = e["_id"]["kind"]
+        if ad_id not in by_ad:
+            by_ad[ad_id] = {"impressions": 0, "clicks": 0}
+        by_ad[ad_id][f"{kind}s"] = e["count"]
+    return by_ad
+
+
+def _ctr(clicks: int, impressions: int) -> float:
+    return round((clicks / impressions * 100), 2) if impressions else 0.0
+
+
+@api_router.get("/admin/ads/analytics")
+async def ads_analytics(days: int = 7, user: dict = Depends(get_current_user)):
+    """Per-ad performance over the last N days (default 7). Returns per-row totals
+    plus aggregate `totals` for the window. Admin or ad-manager."""
+    await _require_ad_admin(user)
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="days must be 1..365")
+
+    by_ad = await _aggregate_window(days)
+    ads = await db.advertisements.find({}).sort("created_at", -1).to_list(1000)
+    rows = []
+    win_impr_total = 0
+    win_clk_total = 0
+    for ad in ads:
+        w = by_ad.get(ad["id"], {"impressions": 0, "clicks": 0})
+        rows.append({
+            "id": ad["id"],
+            "name": ad["name"],
+            "active": bool(ad.get("active", True)),
+            "click_url": ad["click_url"],
+            "image_url": ad["image_url"],
+            "window_impressions": w["impressions"],
+            "window_clicks": w["clicks"],
+            "window_ctr": _ctr(w["clicks"], w["impressions"]),
+            "total_impressions": int(ad.get("impression_count", 0)),
+            "total_clicks": int(ad.get("click_count", 0)),
+            "total_ctr": _ctr(int(ad.get("click_count", 0)), int(ad.get("impression_count", 0))),
+            "created_at": ad.get("created_at"),
+        })
+        win_impr_total += w["impressions"]
+        win_clk_total += w["clicks"]
+
+    # Sort by window impressions desc (best-performing first)
+    rows.sort(key=lambda r: (r["window_impressions"], r["window_clicks"]), reverse=True)
+
+    return {
+        "window_days": days,
+        "totals": {
+            "impressions": win_impr_total,
+            "clicks": win_clk_total,
+            "ctr": _ctr(win_clk_total, win_impr_total),
+        },
+        "rows": rows,
+    }
+
+
+@api_router.get("/admin/ads/analytics/export")
+async def ads_analytics_csv(days: int = 7, user: dict = Depends(get_current_user)):
+    """CSV export of the analytics — invoice-ready columns for sponsors paying CPM."""
+    await _require_ad_admin(user)
+    payload = await ads_analytics(days=days, user=user)  # reuse aggregation
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Ad ID", "Name", "Active", "Click URL",
+        f"Impressions ({days}d)", f"Clicks ({days}d)", f"CTR % ({days}d)",
+        "Impressions (Total)", "Clicks (Total)", "CTR % (Total)",
+        "Created",
+    ])
+    for r in payload["rows"]:
+        writer.writerow([
+            r["id"], r["name"], "yes" if r["active"] else "no", r["click_url"],
+            r["window_impressions"], r["window_clicks"], r["window_ctr"],
+            r["total_impressions"], r["total_clicks"], r["total_ctr"],
+            r.get("created_at", ""),
+        ])
+    writer.writerow([])
+    writer.writerow(["TOTAL", "", "", "",
+                     payload["totals"]["impressions"], payload["totals"]["clicks"], payload["totals"]["ctr"],
+                     "", "", "", ""])
+
+    buf.seek(0)
+    filename = f"gomofos-ads-{days}d-{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

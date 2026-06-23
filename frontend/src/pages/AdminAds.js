@@ -95,10 +95,15 @@ export default function AdminAds() {
     <div className="min-h-screen bg-[#0A0A0A]/60 text-white">
       <TopNav />
       <div className="max-w-6xl mx-auto px-6 py-10" data-testid="admin-ads-page">
-        <div className="mb-8">
-          <p className="text-xs font-bold tracking-[0.3em] text-[#FF3B30]">ADMIN</p>
-          <h1 className="text-4xl font-black mt-1">ADVERTISING</h1>
-          <p className="text-sm text-[#A3A3A3] mt-2">Add, search and toggle ads shown in the right rail to every logged-in user.</p>
+        <div className="mb-8 flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-xs font-bold tracking-[0.3em] text-[#FF3B30]">ADMIN</p>
+            <h1 className="text-4xl font-black mt-1">ADVERTISING</h1>
+            <p className="text-sm text-[#A3A3A3] mt-2">Add, search and toggle ads shown in the right rail to every logged-in user.</p>
+          </div>
+          <a href="/admin/ads/analytics" data-testid="open-analytics" className="px-4 py-2 border border-[#22C55E] text-[#22C55E] hover:bg-[#22C55E] hover:text-black text-xs font-bold tracking-wider">
+            VIEW ANALYTICS →
+          </a>
         </div>
 
         {/* Create form */}
