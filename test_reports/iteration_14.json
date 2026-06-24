@@ -1,0 +1,42 @@
+{
+  "summary": "Iter14 testing of 5 user-requested changes: (1) SEO meta description + og:/twitter:card tags in /index.html, (2) TopNav full-width spanning over AdRail (z-50), (3) condensed ADMIN dropdown with role-aware items, (4) /terms + /privacy long-form content, (5) Refer a Mofo block on /wallet. Backend: 79/79 previous iter9-13 tests still pass (0 regressions); new test_iter14_smoke_and_meta.py adds 8 passing + 1 skipped tests covering /api/auth/me, /api/admin/ads CRUD+RBAC, /api/admin/ads/analytics, /api/health/time, and the SEO meta tag spot-check on the served /index.html. Frontend: TopNav verified full-width (right=1920, vw=1920) with z-index=50 (above AdRail z-20) on both /dashboard and /wallet; admin dropdown trigger visible for admin and opens all 5 items (Disputes/Latency/Ads/Ad analytics/Ad managers) which navigate correctly; regular user (davidjovanic) does NOT see the trigger; Terms page renders 'Terms and Conditions of Use' heading, 'LEGAL · LAST UPDATED 24 JUNE 2026' tag, all 7 numbered sections and named clauses (Legally Binding Agreement, No Monetary Value, Cheating Prohibition, Liability Cap, AUD $1); Privacy page renders 'Privacy Policy' + all 13 sections plus key phrases (We do not sell your personal information, 13 years and older, Australian Privacy Act 1988, helpdesk@gomofos.com); Footer rendered on both /terms and /privacy; /wallet shows wallet-refer-a-mofo with 'REFER A MOFO — get 500 CR per friend' text and button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Terms.js Item helper (Section 3 'Earning Credits')", "issue": "React hydration warning: <ul> nested inside <p>. Item renders children inside <p><strong/><span>{children}</span></p>, but in section 3 the children contain a <ul>. Causes console error 'In HTML, <ul> cannot be a descendant of <p>'. Renders OK visually but invalid HTML & noisy console.", "selector": "[data-testid='terms-page'] section :nth-of-type(3)", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_smoke_and_meta.py",
+    "/app/test_reports/pytest/iter14_regression.xml",
+    "/app/test_reports/pytest/iter14_smoke.xml"
+  ],
+  "action_items": [
+    "(LOW) In /app/frontend/src/pages/Terms.js, Section 3 'Earning Credits' Item: either change the Item wrapper from <p> to <div> (since children may contain block elements like <ul>), or refactor the 'Earning Credits' content to emit the <ul> as a sibling of the <p>. Fixes the React hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "TopNav.js: clean. Conditional rendering of admin items (isAdmin vs canManageAds) correctly suppresses Disputes/Latency/Ad-managers for ad-manager-only users. DropdownMenuItem onSelect navigate(it.to) is the right pattern with Radix — auto-closes on select. data-testid coverage complete on trigger, content, and every item.",
+    "TopNav.js layout: 'relative z-50 xl:-mr-[200px]' correctly escapes ProtectedRoute's xl:pr-[200px] container; verified getBoundingClientRect().right = window.innerWidth on /dashboard and /wallet at 1920px viewport. Inner content uses max-w-7xl mx-auto so nav items stay centered while the underlying bar extends edge-to-edge.",
+    "Terms.js & Privacy.js: well-structured Section/Item/SubSection helpers, full long-form copy embedded as JSX (no fetch needed). One minor invalid-HTML issue noted above (ul inside p in Section 3).",
+    "Wallet.js: ReferAMofo embed wrapped in data-testid='wallet-refer-a-mofo' placed above transaction history — visible and functional. Reuses existing component, no duplication.",
+    "public/index.html: meta description (long-form), og:title/description/type/image, twitter:card all present. NOTE: changes to public/index.html require a frontend supervisor restart to be served — CRA dev server does NOT hot-reload public/ files. This is environmental, not a code bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_smoke_and_meta.py (NEW, 9 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (79/79 iter9-13 regression + 8/8 iter14 smoke executed; 1 ad-manager analytics test skipped because /api/admin/users does not exist on this backend — backend FE-binding for can_manage_ads was already validated in iter12+iter13)",
+    "frontend": "100% (TopNav full-width + z-50 verified on /dashboard and /wallet; admin dropdown opens with all 5 items for admin and navigates correctly; regular user hides dropdown; Terms 7 sections + named clauses present; Privacy 13 sections + all required phrases present; Footer on both legal pages; wallet REFER A MOFO block present)"
+  },
+  "test_credentials": "admin@esportsbet.com / admin123; davidjovanic@yahoo.com.au / Andmay123",
+  "seed_data_creation": "Created and deleted one ephemeral ad TEST_iter14_smoke_ad during pytest. No persistent test data left behind. No ad-manager promotion performed (endpoint /api/admin/users 404 — promotion path verified in iter12/iter13 baseline still passing).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter14 baseline = 79/79 iter9-13 regression + 8/8 iter14 smoke (1 skip for ad-manager dropdown UI — backend RBAC already covered in iter12/13). IMPORTANT environment note: changes to /app/frontend/public/index.html require `sudo supervisorctl restart frontend` to be picked up; the running CRA dev server caches public/ at startup and does NOT hot-reload it. The only frontend bug found is a minor React hydration warning in /app/frontend/src/pages/Terms.js Item helper (Section 3 'Earning Credits' embeds a <ul> inside a <p>). Suggest changing Item's wrapper from <p> to <div>. Test files: /app/backend/tests/test_iter14_smoke_and_meta.py. Backend URL: https://bet-esports.preview.emergentagent.com.",
+  "rca of the issue": "Terms.js Item component renders `<p><strong>{k}:</strong> <span>{children}</span></p>`. In Section 3, the 'Earning Credits' Item passes children that include a `<ul>` block element. HTML spec disallows block elements inside `<p>`, and React hydrates this as the parent `<p>` auto-closing before the `<ul>`, producing visible content but throwing a hydration mismatch warning. Mitigation: change Item to render `<div>` instead of `<p>` (1-line fix at /app/frontend/src/pages/Terms.js line 79)."
+}

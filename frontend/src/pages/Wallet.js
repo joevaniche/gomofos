@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Logo from '../components/Logo';
 import { useNavigate, Link } from 'react-router-dom';
 import TopNav from '../components/TopNav';
+import ReferAMofo from '../components/ReferAMofo';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { SignOut, Wallet as WalletIcon, ArrowUp, ArrowDown, Coins } from '@phosphor-icons/react';
@@ -74,6 +75,11 @@ function Wallet() {
               <p className="text-xs text-[#A3A3A3] leading-relaxed">
                 <span className="font-bold text-white">PLAY MONEY MODE:</span> Credits are virtual currency for entertainment only. No real money is involved. New users start with 1,000 free credits.
               </p>
+            </div>
+
+            {/* Refer-a-Mofo earn-credits CTA */}
+            <div className="mt-6" data-testid="wallet-refer-a-mofo">
+              <ReferAMofo />
             </div>
           </div>
 
