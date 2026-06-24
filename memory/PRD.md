@@ -386,3 +386,25 @@
 - **P3** (nice-to-have): Stream CSV in chunks if ad catalog ever exceeds 1000 ads.
 - **P3** (a11y): Add `aria-label="analytics-window"` to the 1D/7D/30D selector group.
 
+
+
+## Iteration 14: TopNav Full-Width + Admin Dropdown + Legal Copy + Wallet Refer + SEO (Feb 2026)
+### Done
+- **🔍 SEO meta description** lives in `/app/frontend/public/index.html`. Enriched with long-form description + keywords + Open Graph + Twitter Card. ⚠️ Changes here require `sudo supervisorctl restart frontend` (CRA caches public/ at startup).
+- **📏 TopNav full-width over AdRail** — `relative z-50 xl:-mr-[200px]` so the nav spans the full viewport width and sits above the AdRail (z-20). Verified at 1920×900: nav.right = window.innerWidth.
+- **🛡️ ADMIN dropdown** — shadcn DropdownMenu condenses Disputes/Latency/Ads/Ad analytics/Ad managers into one ADMIN trigger. Role-aware: admin sees all 5, ad-managers see only Ads + Analytics, regular users don't see the trigger.
+- **📜 Legal copy populated** — /terms = 7-section Terms of Use (from docx); /privacy = 13-section Privacy Policy (from docx). Section/Item/SubSection helpers for visual rhythm. Footer on both.
+- **💰 Refer a Mofo on Wallet** — embedded existing <ReferAMofo /> inside data-testid='wallet-refer-a-mofo' between the PLAY MONEY MODE notice and the transaction history.
+- **🩹 HTML hygiene** — Terms.js Item: <p> → <div> to allow <ul> children without React hydration warning.
+
+### Verified
+- Backend pytest 87/87 PASS (79 iter9–13 regression + 8 new iter14 smoke). Zero regressions.
+- Frontend Playwright PASS — full-width nav + z-50 above AdRail; admin dropdown opens 5 items and navigates correctly; non-admin hides trigger; Terms 7 sections + every named clause; Privacy 13 sections + all required phrases + helpdesk email; wallet REFER A MOFO present; SEO meta tags live in production HTML.
+
+### Files added/changed
+- `/app/frontend/src/components/TopNav.js` (REWRITTEN)
+- `/app/frontend/src/pages/Terms.js` (REWRITTEN + <div> Item fix)
+- `/app/frontend/src/pages/Privacy.js` (REWRITTEN)
+- `/app/frontend/src/pages/Wallet.js` (ReferAMofo embed)
+- `/app/frontend/public/index.html` (SEO meta tags)
+- `/app/backend/tests/test_iter14_smoke_and_meta.py` (NEW, 9 tests)

@@ -76,6 +76,6 @@ function Section({ n, title, children }) {
 }
 function Item({ k, children }) {
   return (
-    <p><strong className="text-white">{k}:</strong> <span className="text-[#D4D4D4]">{children}</span></p>
+    <div><strong className="text-white">{k}:</strong> <span className="text-[#D4D4D4]">{children}</span></div>
   );
 }
